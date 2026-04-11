@@ -138,6 +138,24 @@ button {
   color: #f8fbff;
 }
 
+.hero-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.meta-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(248, 251, 255, 0.88);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
 .status-pill {
   display: inline-flex;
   align-items: center;
@@ -320,6 +338,48 @@ button {
   background: #10233d;
   color: #fff;
   font-weight: 700;
+}
+
+.settings-form {
+  display: grid;
+  gap: 18px;
+}
+
+.field-group {
+  display: grid;
+  gap: 8px;
+}
+
+.field-label {
+  color: #16355a;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.field-input {
+  width: 100%;
+  min-height: 46px;
+  padding: 0 14px;
+  border: 1px solid rgba(16, 35, 61, 0.12);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #10233d;
+}
+
+.field-input:focus {
+  outline: 2px solid rgba(49, 130, 206, 0.18);
+  border-color: rgba(49, 130, 206, 0.42);
+}
+
+.field-help {
+  margin: 0;
+  color: #667892;
+  font-size: 0.9rem;
+}
+
+.mono-text {
+  font-family: ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Monaco, Consolas, monospace;
+  word-break: break-all;
 }
 
 .error-text {

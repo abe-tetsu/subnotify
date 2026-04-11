@@ -27,8 +27,8 @@ dist/
 coverage/
 
 # Tauri
-src-tauri/target/
-src-tauri/gen/
+**/src-tauri/target/
+**/src-tauri/gen/
 
 # Go
 bin/
