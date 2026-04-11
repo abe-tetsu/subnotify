@@ -1,0 +1,48 @@
+# Secrets and local config
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+secrets/
+
+# OAuth / auth artifacts
+token.json
+tokens.json
+oauth*.json
+auth*.json
+
+# Logs and local runtime files
+*.log
+tmp/
+.tmp/
+.cache/
+
+# Node / frontend
+node_modules/
+dist/
+.vite/
+coverage/
+
+# Tauri
+src-tauri/target/
+src-tauri/gen/
+
+# Go
+bin/
+cover.out
+*.test
+
+# Local databases and state
+*.db
+*.sqlite
+*.sqlite3
+*.db-shm
+*.db-wal
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
