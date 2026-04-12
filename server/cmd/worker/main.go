@@ -1,9 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"strings"
@@ -17,11 +21,12 @@ import (
 
 func main() {
 	cfg := config.Load()
-	log.Printf("subnotify worker started in %s mode (polling interval: %ds)", cfg.AppEnv, cfg.PollingIntervalSec)
+	log.Printf("subnotify worker started (polling: %ds, notify API: %s)", cfg.PollingIntervalSec, cfg.NotifyAPIURL)
 
 	redirectURL := strings.TrimRight(cfg.PublicBaseURL, "/") + cfg.YouTubeAuthCallbackPath
 	oauth := youtube.NewOAuthService(cfg.YouTubeClientID, cfg.YouTubeClientSecret, redirectURL, cfg.DataDir)
 	store := notify.NewStore(cfg.DataDir)
+	httpClient := &http.Client{Timeout: 10 * time.Second}
 
 	initialized := false
 	seen := store.LoadSeenSubscribers()
@@ -71,26 +76,49 @@ func main() {
 				continue
 			}
 
-			events := make([]notify.NotifyEvent, 0, len(newSubs))
 			for _, sub := range newSubs {
 				seen[sub.ChannelID] = true
 				log.Printf("worker: 新規登録者を検出: %s", sub.Title)
-				events = append(events, notify.NewSubscriberEvent(sub))
+
+				if err := sendNotifyEvent(httpClient, cfg.NotifyAPIURL, sub.Title); err != nil {
+					log.Printf("worker: 通知送信エラー: %v", err)
+				} else {
+					log.Printf("worker: 通知送信完了: %s", sub.Title)
+				}
 			}
 
 			if err := store.SaveSeenSubscribers(seen); err != nil {
 				log.Printf("worker: 既知登録者の保存エラー: %v", err)
 			}
 
-			if err := store.AppendEvents(events); err != nil {
-				log.Printf("worker: イベント書き出しエラー: %v", err)
-			}
-
-			log.Printf("worker: %d 件の新規登録通知を書き出し。", len(newSubs))
+			log.Printf("worker: %d 件の新規登録通知を送出。", len(newSubs))
 
 		case <-shutdownSignal:
 			log.Printf("subnotify worker shutting down")
 			return
 		}
 	}
+}
+
+func sendNotifyEvent(client *http.Client, apiURL string, subscriberName string) error {
+	url := strings.TrimRight(apiURL, "/") + "/v1/test-event"
+
+	body, err := json.Marshal(map[string]string{
+		"subscriberName": subscriberName,
+	})
+	if err != nil {
+		return fmt.Errorf("JSON の作成に失敗: %w", err)
+	}
+
+	resp, err := client.Post(url, "application/json", bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("API への送信に失敗: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("API がエラーを返しました (HTTP %d)", resp.StatusCode)
+	}
+
+	return nil
 }

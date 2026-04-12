@@ -19,6 +19,7 @@ type Config struct {
 	YouTubeClientSecret     string
 	DataDir                 string
 	PollingIntervalSec      int
+	NotifyAPIURL            string
 }
 
 func Load() Config {
@@ -41,6 +42,7 @@ func Load() Config {
 		YouTubeClientSecret: envOrDefault("SUBNOTIFY_YOUTUBE_CLIENT_SECRET", ""),
 		DataDir:            envOrDefault("SUBNOTIFY_DATA_DIR", ".subnotify-data"),
 		PollingIntervalSec: envOrDefaultInt("SUBNOTIFY_POLLING_INTERVAL_SEC", 30),
+		NotifyAPIURL:       envOrDefault("SUBNOTIFY_NOTIFY_API_URL", "https://api.abetetsu.net"),
 	}
 }
 

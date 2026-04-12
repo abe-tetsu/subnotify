@@ -42,25 +42,37 @@ YouTube チャンネル登録通知を OBS オーバーレイとして表示す�
   - 3モード表示（live / named preview / anonymous preview）
   - URL ベースのモード切り替え
 
+- **通知配信**
+  - インメモリ Broker によるイベント配信（Pub/Sub パターン）
+  - オーバーレイからの HTTP ポーリング（2秒間隔）で通知受信
+  - 通知カードのスライドイン/アウトアニメーション + カウントダウンバー
+  - キュー管理（複数通知を順番に表示）
+  - 重複防止（イベントID ベース）
+  - テスト通知送信（デスクトップアプリのテストタブから）
+
+- **本番環境**
+  - Cloud Run にデプロイ済み（GCP プロジェクト: `subscreen`、リージョン: `asia-northeast1`）
+  - オーバーレイ: `https://overlay.abetetsu.net`
+  - API: `https://api.abetetsu.net`
+  - カスタムドメイン（Cloudflare DNS → Cloud Run）
+  - OBS 用 URL: `https://overlay.abetetsu.net/live/{workspace}?api=https://api.abetetsu.net`
+
 - **開発環境**
-  - `make dev` で API + デスクトップ同時起動
+  - `make dev` で API + オーバーレイ + デスクトップを同時起動
   - ビルド・テスト全パス（`npm run build`, `cargo check`, `go test`）
 
 ### 次にやること
 
-1. **バックエンドからオーバーレイへの通知配信**
-   - SSE（Server-Sent Events）または WebSocket でリアルタイム配信
-   - オーバーレイが通知イベントを受信してカードを表示
+- 通知カードのカスタマイズ（アクセントカラー、アバター画像）
+- 効果音の実装（subscreen から移植）
+- GitHub Actions で自動デプロイ
 
 ### 未着手
 
 - データベース永続化（チャンネル状態、通知履歴）
 - 匿名通知ロジック（登録者数増加 vs 公開登録者の差分）
-- 通知カードのアニメーション・効果音（subscreen から移植）
-- カスタマイズ設定（アクセントカラー、アバター画像）
 - 構造化ログ・リクエストログ
 - 共有型定義（OpenAPI、TypeScript/Go 型）
-- 本番デプロイ設定
 
 ## ディレクトリ構成
 
