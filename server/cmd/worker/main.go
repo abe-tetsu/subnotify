@@ -100,6 +100,9 @@ func main() {
 			totalIncrease := totalCount - stats.LastTotalCount
 			publicIncrease := len(newPublicSubs)
 			anonymousCount := totalIncrease - publicIncrease
+			if anonymousCount < 0 {
+				anonymousCount = 0
+			}
 
 			if anonymousCount > 0 {
 				log.Printf("worker: 匿名登録者 %d 人を検出 (総登録者: %d→%d, 公開新規: %d)", anonymousCount, stats.LastTotalCount, totalCount, publicIncrease)

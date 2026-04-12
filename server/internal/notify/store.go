@@ -30,7 +30,12 @@ type NotifyEvent struct {
 	SubscriberName        string `json:"subscriberName"`
 	SubscriberChannelID   string `json:"subscriberChannelId"`
 	Message               string `json:"message"`
-	CreatedAt             string `json:"createdAt"`
+	AccentColor           string `json:"accentColor,omitempty"`
+	DisplayDurationSec    int    `json:"displayDurationSec,omitempty"`
+	AvatarUrl             string  `json:"avatarUrl,omitempty"`
+	SoundPreset           string  `json:"soundPreset,omitempty"`
+	SoundVolume           float64 `json:"soundVolume,omitempty"`
+	CreatedAt             string  `json:"createdAt"`
 }
 
 type Store struct {

@@ -315,6 +315,104 @@ button { border: 0; cursor: pointer; }
 .success-text { color: #1c6d45; }
 .error-text { color: #b1402d; }
 
+/* Segmented control */
+.segmented-control {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.segment-button {
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid rgba(16, 35, 61, 0.12);
+  border-radius: 14px;
+  color: #173659;
+  background: rgba(255, 255, 255, 0.88);
+  font-weight: 700;
+  cursor: pointer;
+  transition: background-color 150ms ease, border-color 150ms ease, transform 150ms ease;
+}
+
+.segment-button:hover { transform: translateY(-1px); }
+
+.segment-button.is-selected {
+  border-color: rgba(16, 35, 61, 0.22);
+  color: #10233d;
+  background: #dfe5ec;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
+}
+
+/* Avatar upload */
+.avatar-upload-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.avatar-upload-button {
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+}
+
+.avatar-file-input { display: none; }
+
+.avatar-preview {
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  object-fit: cover;
+  border: 1px solid rgba(16, 35, 61, 0.12);
+}
+
+/* Volume slider */
+.volume-slider {
+  width: 100%;
+  height: 6px;
+  border-radius: 999px;
+  appearance: none;
+  background: rgba(16, 35, 61, 0.12);
+  outline: none;
+  cursor: pointer;
+}
+
+.volume-slider::-webkit-slider-thumb {
+  appearance: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: #10233d;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+/* Color swatches */
+.color-swatch-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.color-swatch {
+  width: 40px;
+  height: 40px;
+  border: 2px solid transparent;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: transform 150ms ease, box-shadow 150ms ease, border-color 150ms ease;
+}
+
+.color-swatch:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.18);
+}
+
+.color-swatch.is-selected {
+  border-color: #10233d;
+  box-shadow: 0 0 0 3px rgba(16, 35, 61, 0.15);
+}
+
 /* Responsive */
 @media (max-width: 860px) {
   .app-shell { padding: 18px; }

@@ -12,6 +12,12 @@ type DesktopSettings = {
   youtubeClientSecret: string;
   namedMessageTemplate: string;
   anonymousMessageTemplate: string;
+  accentColor: string;
+  displayDurationSec: number;
+  pollingIntervalSec: number;
+  hasAvatarImage: boolean;
+  soundPreset: string;
+  soundVolume: number;
 };
 
 type BackendConnectionStatus = {
@@ -46,7 +52,31 @@ const fallbackSettings: DesktopSettings = {
   youtubeClientSecret: "",
   namedMessageTemplate: "{subscriber}さん、チャンネル登録ありがとう！",
   anonymousMessageTemplate: "チャンネル登録ありがとう！",
+  accentColor: "#ef5b31",
+  displayDurationSec: 6,
+  pollingIntervalSec: 30,
+  hasAvatarImage: false,
+  soundPreset: "chime",
+  soundVolume: 0.8,
 };
+
+const soundPresetOptions = [
+  { value: "chime", label: "チャイム" },
+  { value: "bell", label: "ベル" },
+  { value: "pop", label: "ポップ" },
+  { value: "none", label: "なし" },
+];
+
+const accentColorOptions = [
+  { value: "#ef5b31", label: "オレンジ" },
+  { value: "#e53e3e", label: "レッド" },
+  { value: "#d53f8c", label: "ピンク" },
+  { value: "#805ad5", label: "パープル" },
+  { value: "#3182ce", label: "ブルー" },
+  { value: "#0ea5e9", label: "スカイ" },
+  { value: "#38a169", label: "グリーン" },
+  { value: "#d69e2e", label: "ゴールド" },
+];
 
 const fallbackYouTubeStatus: YouTubeWorkspaceStatus = {
   ok: false,
@@ -88,6 +118,7 @@ function App() {
   const [isSendingTestEvent, setIsSendingTestEvent] = useState(false);
   const [testEventMessage, setTestEventMessage] = useState<string | null>(null);
   const [testSubscriberName, setTestSubscriberName] = useState("テストユーザー");
+  const [avatarPreviewUrl, setAvatarPreviewUrl] = useState<string | null>(null);
   const [workerRunning, setWorkerRunning] = useState(false);
   const [workerMessage, setWorkerMessage] = useState<string | null>(null);
 
@@ -98,7 +129,12 @@ function App() {
     settings.youtubeClientId !== savedSettings.youtubeClientId ||
     settings.youtubeClientSecret !== savedSettings.youtubeClientSecret ||
     settings.namedMessageTemplate !== savedSettings.namedMessageTemplate ||
-    settings.anonymousMessageTemplate !== savedSettings.anonymousMessageTemplate;
+    settings.anonymousMessageTemplate !== savedSettings.anonymousMessageTemplate ||
+    settings.accentColor !== savedSettings.accentColor ||
+    settings.displayDurationSec !== savedSettings.displayDurationSec ||
+    settings.pollingIntervalSec !== savedSettings.pollingIntervalSec ||
+    settings.soundPreset !== savedSettings.soundPreset ||
+    settings.soundVolume !== savedSettings.soundVolume;
 
   const testOverlayUrl = (() => {
     const base = savedSettings.overlayBaseUrl.trim().replace(/\/+$/, "") || "http://localhost:5173";
@@ -144,7 +180,15 @@ function App() {
       } catch (_e) { /* ignore */ }
     };
 
+    const loadAvatar = async () => {
+      try {
+        const dataUrl = await invoke<string | null>("get_avatar_data_url");
+        if (isMounted && dataUrl) setAvatarPreviewUrl(dataUrl);
+      } catch (_e) { /* ignore */ }
+    };
+
     void load();
+    void loadAvatar();
     void loadWorkerStatus();
 
     const workerInterval = window.setInterval(() => void loadWorkerStatus(), 3000);
@@ -504,6 +548,141 @@ function App() {
                     onChange={(e) => { const v = e.currentTarget.value; setSettings((c) => ({ ...c, anonymousMessageTemplate: v })); }}
                     rows={3}
                     value={settings.anonymousMessageTemplate}
+                  />
+                </label>
+              </div>
+            </article>
+
+            <article className="panel-card">
+              <p className="panel-label">通知デザイン設定</p>
+
+              <div className="settings-form">
+                <div className="field-group">
+                  <span className="field-label">アクセントカラー</span>
+                  <div className="color-swatch-row">
+                    {accentColorOptions.map((option) => (
+                      <button
+                        key={option.value}
+                        aria-label={option.label}
+                        aria-pressed={settings.accentColor === option.value}
+                        className={`color-swatch ${settings.accentColor === option.value ? "is-selected" : ""}`}
+                        onClick={() => setSettings((c) => ({ ...c, accentColor: option.value }))}
+                        style={{ background: option.value }}
+                        title={option.label}
+                        type="button"
+                      />
+                    ))}
+                  </div>
+                </div>
+
+                <div className="field-group">
+                  <span className="field-label">アバター画像</span>
+                  <div className="avatar-upload-row">
+                    {avatarPreviewUrl ? (
+                      <img alt="アバター" className="avatar-preview" src={avatarPreviewUrl} />
+                    ) : null}
+                    <label className="secondary-button avatar-upload-button">
+                      画像を選択
+                      <input
+                        accept="image/*"
+                        className="avatar-file-input"
+                        onChange={(event) => {
+                          const file = event.currentTarget.files?.[0];
+                          if (!file) return;
+                          const reader = new FileReader();
+                          reader.onload = () => {
+                            const dataUrl = reader.result as string;
+                            const base64 = dataUrl.split(",")[1];
+                            void invoke("upload_avatar", { imageData: base64 }).then(() => {
+                              setAvatarPreviewUrl(dataUrl);
+                            });
+                          };
+                          reader.readAsDataURL(file);
+                          event.currentTarget.value = "";
+                        }}
+                        type="file"
+                      />
+                    </label>
+                    <button
+                      className="secondary-button"
+                      onClick={() => void invoke("remove_avatar").then(() => setAvatarPreviewUrl(null))}
+                      type="button"
+                    >
+                      削除
+                    </button>
+                  </div>
+                  <p className="hint-text">通知カードのイニシャルアバターが画像に変わります。</p>
+                </div>
+
+                <label className="field-group">
+                  <span className="field-label">表示時間（秒）</span>
+                  <div className="segmented-control">
+                    {[3, 5, 6, 8, 10].map((option) => (
+                      <button
+                        key={option}
+                        aria-pressed={settings.displayDurationSec === option}
+                        className={`segment-button ${settings.displayDurationSec === option ? "is-selected" : ""}`}
+                        onClick={() => setSettings((c) => ({ ...c, displayDurationSec: option }))}
+                        type="button"
+                      >
+                        {option} 秒
+                      </button>
+                    ))}
+                  </div>
+                </label>
+
+                <label className="field-group">
+                  <span className="field-label">ポーリング間隔（秒）</span>
+                  <div className="segmented-control">
+                    {[10, 15, 30, 60].map((option) => (
+                      <button
+                        key={option}
+                        aria-pressed={settings.pollingIntervalSec === option}
+                        className={`segment-button ${settings.pollingIntervalSec === option ? "is-selected" : ""}`}
+                        onClick={() => setSettings((c) => ({ ...c, pollingIntervalSec: option }))}
+                        type="button"
+                      >
+                        {option} 秒
+                      </button>
+                    ))}
+                  </div>
+                  <p className="hint-text">YouTube API に問い合わせる間隔です。短いほどリアルタイムに近づきますが、API クォータを消費します。</p>
+                </label>
+
+              </div>
+            </article>
+
+            <article className="panel-card">
+              <p className="panel-label">通知音設定</p>
+
+              <div className="settings-form">
+                <label className="field-group">
+                  <span className="field-label">通知音</span>
+                  <div className="segmented-control">
+                    {soundPresetOptions.map((option) => (
+                      <button
+                        key={option.value}
+                        aria-pressed={settings.soundPreset === option.value}
+                        className={`segment-button ${settings.soundPreset === option.value ? "is-selected" : ""}`}
+                        onClick={() => setSettings((c) => ({ ...c, soundPreset: option.value }))}
+                        type="button"
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                </label>
+
+                <label className="field-group">
+                  <span className="field-label">音量 ({Math.round(settings.soundVolume * 100)}%)</span>
+                  <input
+                    className="volume-slider"
+                    max="1"
+                    min="0"
+                    onChange={(e) => setSettings((c) => ({ ...c, soundVolume: Number(e.currentTarget.value) }))}
+                    step="0.1"
+                    type="range"
+                    value={settings.soundVolume}
                   />
                 </label>
               </div>

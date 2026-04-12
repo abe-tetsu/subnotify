@@ -9,6 +9,11 @@ type NotifyEvent = {
   subscriberName: string;
   subscriberChannelId: string;
   message: string;
+  accentColor: string;
+  displayDurationSec: number;
+  avatarUrl: string;
+  soundPreset: string;
+  soundVolume: number;
   createdAt: string;
 };
 
@@ -48,6 +53,98 @@ function readOverlayConfig(): OverlayConfig {
   };
 }
 
+type SoundPreset = {
+  name: string;
+  play: (ctx: AudioContext, volume: number) => void;
+};
+
+const soundPresets: Record<string, SoundPreset> = {
+  chime: {
+    name: "チャイム",
+    play: (ctx, volume) => {
+      const now = ctx.currentTime;
+      const gain = ctx.createGain();
+      gain.connect(ctx.destination);
+      gain.gain.setValueAtTime(0.0001, now);
+      gain.gain.exponentialRampToValueAtTime(volume * 0.12, now + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.5);
+
+      const osc1 = ctx.createOscillator();
+      osc1.type = "sine";
+      osc1.frequency.setValueAtTime(880, now);
+      osc1.frequency.exponentialRampToValueAtTime(1046, now + 0.18);
+      osc1.connect(gain);
+      osc1.start(now);
+      osc1.stop(now + 0.4);
+
+      const osc2 = ctx.createOscillator();
+      osc2.type = "triangle";
+      osc2.frequency.setValueAtTime(1318, now + 0.08);
+      osc2.frequency.exponentialRampToValueAtTime(1567, now + 0.28);
+      osc2.connect(gain);
+      osc2.start(now + 0.08);
+      osc2.stop(now + 0.5);
+    },
+  },
+  bell: {
+    name: "ベル",
+    play: (ctx, volume) => {
+      const now = ctx.currentTime;
+      const gain = ctx.createGain();
+      gain.connect(ctx.destination);
+      gain.gain.setValueAtTime(volume * 0.15, now);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.8);
+
+      const osc = ctx.createOscillator();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(1200, now);
+      osc.frequency.exponentialRampToValueAtTime(800, now + 0.8);
+      osc.connect(gain);
+      osc.start(now);
+      osc.stop(now + 0.8);
+    },
+  },
+  pop: {
+    name: "ポップ",
+    play: (ctx, volume) => {
+      const now = ctx.currentTime;
+      const gain = ctx.createGain();
+      gain.connect(ctx.destination);
+      gain.gain.setValueAtTime(volume * 0.2, now);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.25);
+
+      const osc = ctx.createOscillator();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(600, now);
+      osc.frequency.exponentialRampToValueAtTime(1200, now + 0.08);
+      osc.frequency.exponentialRampToValueAtTime(800, now + 0.25);
+      osc.connect(gain);
+      osc.start(now);
+      osc.stop(now + 0.25);
+    },
+  },
+  none: {
+    name: "なし",
+    play: () => {},
+  },
+};
+
+let audioContext: AudioContext | null = null;
+
+function playSound(preset: string, volume: number) {
+  if (preset === "none" || !preset) return;
+  const sound = soundPresets[preset];
+  if (!sound) return;
+
+  if (!audioContext) {
+    audioContext = new AudioContext();
+  }
+  if (audioContext.state === "suspended") {
+    void audioContext.resume();
+  }
+  sound.play(audioContext, Math.max(0, Math.min(1, volume)));
+}
+
 function LiveOverlay({ config }: { config: OverlayConfig }) {
   const queueRef = useRef<NotifyEvent[]>([]);
   const [activeEvent, setActiveEvent] = useState<NotifyEvent | null>(null);
@@ -67,6 +164,12 @@ function LiveOverlay({ config }: { config: OverlayConfig }) {
     setActiveEvent(next);
     setIsVisible(true);
 
+    playSound(next.soundPreset || "chime", next.soundVolume > 0 ? next.soundVolume : 0.8);
+
+    const duration = next.displayDurationSec > 0
+      ? next.displayDurationSec * 1000
+      : config.displayDurationMs;
+
     window.setTimeout(() => {
       setIsVisible(false);
 
@@ -74,7 +177,7 @@ function LiveOverlay({ config }: { config: OverlayConfig }) {
         setActiveEvent(null);
         showNext();
       }, 400);
-    }, config.displayDurationMs);
+    }, duration);
   }, [config.displayDurationMs]);
 
   useEffect(() => {
@@ -159,7 +262,10 @@ function LiveOverlay({ config }: { config: OverlayConfig }) {
   return (
     <main className="overlay-shell is-live">
       {activeEvent ? (
-        <section className={`overlay-card ${isVisible ? "visible" : ""} ${isAnonymous ? "is-anonymous-card" : ""}`}>
+        <section
+          className={`overlay-card ${isVisible ? "visible" : ""} ${isAnonymous ? "is-anonymous-card" : ""}`}
+          style={activeEvent.accentColor ? { "--accent": activeEvent.accentColor } as React.CSSProperties : undefined}
+        >
           <div className="overlay-header">
             <span className="overlay-badge">
               チャンネル登録ありがとう！
@@ -170,9 +276,13 @@ function LiveOverlay({ config }: { config: OverlayConfig }) {
           <div className="subscriber-row">
             <div className={`avatar-ring ${isAnonymous ? "is-anonymous-ring" : ""}`}>
               <div className="avatar-core">
-                {isAnonymous
-                  ? "?"
-                  : (activeEvent.subscriberName || "S").slice(0, 1).toUpperCase()}
+                {activeEvent.avatarUrl ? (
+                  <img src={activeEvent.avatarUrl} alt="" className="avatar-image" />
+                ) : isAnonymous ? (
+                  "?"
+                ) : (
+                  (activeEvent.subscriberName || "S").slice(0, 1).toUpperCase()
+                )}
               </div>
             </div>
 
@@ -190,7 +300,7 @@ function LiveOverlay({ config }: { config: OverlayConfig }) {
             <div
               className="countdown-fill"
               style={{
-                animationDuration: `${config.displayDurationMs}ms`,
+                animationDuration: `${activeEvent.displayDurationSec > 0 ? activeEvent.displayDurationSec * 1000 : config.displayDurationMs}ms`,
               }}
             />
           </div>

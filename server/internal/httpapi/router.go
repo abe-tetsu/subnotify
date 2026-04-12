@@ -219,9 +219,14 @@ func NewRouter(application *app.App, opts ...any) http.Handler {
 		}
 
 		var req struct {
-			SubscriberName string `json:"subscriberName"`
-			Kind           string `json:"kind"`
-			Message        string `json:"message"`
+			SubscriberName     string  `json:"subscriberName"`
+			Kind               string  `json:"kind"`
+			Message            string  `json:"message"`
+			AccentColor        string  `json:"accentColor"`
+			DisplayDurationSec int     `json:"displayDurationSec"`
+			AvatarUrl          string  `json:"avatarUrl"`
+			SoundPreset        string  `json:"soundPreset"`
+			SoundVolume        float64 `json:"soundVolume"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request"})
@@ -243,6 +248,21 @@ func NewRouter(application *app.App, opts ...any) http.Handler {
 		}
 		if req.Message != "" {
 			event.Message = req.Message
+		}
+		if req.AccentColor != "" {
+			event.AccentColor = req.AccentColor
+		}
+		if req.DisplayDurationSec > 0 {
+			event.DisplayDurationSec = req.DisplayDurationSec
+		}
+		if req.AvatarUrl != "" {
+			event.AvatarUrl = req.AvatarUrl
+		}
+		if req.SoundPreset != "" {
+			event.SoundPreset = req.SoundPreset
+		}
+		if req.SoundVolume > 0 {
+			event.SoundVolume = req.SoundVolume
 		}
 
 		broker.Publish(workspace, event)

@@ -85,6 +85,38 @@ struct DesktopSettings {
     named_message_template: String,
     #[serde(default = "default_anonymous_message")]
     anonymous_message_template: String,
+    #[serde(default = "default_accent_color")]
+    accent_color: String,
+    #[serde(default = "default_display_duration")]
+    display_duration_sec: u64,
+    #[serde(default = "default_polling_interval")]
+    polling_interval_sec: u64,
+    #[serde(default)]
+    has_avatar_image: bool,
+    #[serde(default = "default_sound_preset")]
+    sound_preset: String,
+    #[serde(default = "default_sound_volume")]
+    sound_volume: f64,
+}
+
+fn default_sound_preset() -> String {
+    "chime".to_string()
+}
+
+fn default_sound_volume() -> f64 {
+    0.8
+}
+
+fn default_accent_color() -> String {
+    "#ef5b31".to_string()
+}
+
+fn default_display_duration() -> u64 {
+    6
+}
+
+fn default_polling_interval() -> u64 {
+    30
 }
 
 fn generate_workspace_id() -> String {
@@ -110,6 +142,12 @@ impl Default for DesktopSettings {
             youtube_client_secret: "".to_string(),
             named_message_template: default_named_message(),
             anonymous_message_template: default_anonymous_message(),
+            accent_color: default_accent_color(),
+            display_duration_sec: default_display_duration(),
+            polling_interval_sec: default_polling_interval(),
+            has_avatar_image: false,
+            sound_preset: default_sound_preset(),
+            sound_volume: default_sound_volume(),
         }
     }
 }
@@ -564,8 +602,76 @@ struct SendTestEventResult {
     message: String,
 }
 
+fn avatar_image_path<R: Runtime>(app_handle: &AppHandle<R>) -> Result<PathBuf, String> {
+    let mut dir = app_handle
+        .path()
+        .app_config_dir()
+        .map_err(|e| format!("設定ディレクトリを解決できませんでした: {e}"))?;
+    fs::create_dir_all(&dir)
+        .map_err(|e| format!("設定ディレクトリを作成できませんでした: {e}"))?;
+    dir.push("avatar.png");
+    Ok(dir)
+}
+
+#[tauri::command]
+fn upload_avatar(
+    app_handle: tauri::AppHandle,
+    state: State<'_, DesktopSettingsState>,
+    image_data: String,
+) -> Result<DesktopSettings, String> {
+    use base64::{engine::general_purpose::STANDARD, Engine as _};
+
+    let bytes = STANDARD
+        .decode(&image_data)
+        .map_err(|e| format!("画像データのデコードに失敗: {e}"))?;
+
+    let path = avatar_image_path(&app_handle)?;
+    fs::write(&path, &bytes).map_err(|e| format!("アバター画像の保存に失敗: {e}"))?;
+
+    let mut settings = state.snapshot();
+    settings.has_avatar_image = true;
+    let updated = state.update(settings);
+    let _ = persist_desktop_settings(&app_handle, &updated);
+    Ok(updated)
+}
+
+#[tauri::command]
+fn remove_avatar(
+    app_handle: tauri::AppHandle,
+    state: State<'_, DesktopSettingsState>,
+) -> Result<DesktopSettings, String> {
+    let path = avatar_image_path(&app_handle)?;
+    if path.exists() {
+        fs::remove_file(&path).map_err(|e| format!("アバター画像の削除に失敗: {e}"))?;
+    }
+
+    let mut settings = state.snapshot();
+    settings.has_avatar_image = false;
+    let updated = state.update(settings);
+    let _ = persist_desktop_settings(&app_handle, &updated);
+    Ok(updated)
+}
+
+#[tauri::command]
+fn get_avatar_data_url(
+    app_handle: tauri::AppHandle,
+    state: State<'_, DesktopSettingsState>,
+) -> Option<String> {
+    use base64::{engine::general_purpose::STANDARD, Engine as _};
+
+    let settings = state.snapshot();
+    if !settings.has_avatar_image {
+        return None;
+    }
+
+    let path = avatar_image_path(&app_handle).ok()?;
+    let bytes = fs::read(&path).ok()?;
+    Some(format!("data:image/png;base64,{}", STANDARD.encode(&bytes)))
+}
+
 #[tauri::command]
 fn send_test_event(
+    app_handle: tauri::AppHandle,
     state: State<'_, DesktopSettingsState>,
     subscriber_name: String,
     kind: Option<String>,
@@ -620,17 +726,37 @@ fn send_test_event(
         settings.named_message_template.replace("{subscriber}", &name)
     };
 
+    let avatar_data_url: Option<String> = if settings.has_avatar_image {
+        use base64::{engine::general_purpose::STANDARD, Engine as _};
+        avatar_image_path(&app_handle)
+            .ok()
+            .and_then(|p| fs::read(&p).ok())
+            .map(|bytes| format!("data:image/png;base64,{}", STANDARD.encode(&bytes)))
+    } else {
+        None
+    };
+
     let url = format!("{base_url}/v1/events/{workspace}");
     let body = if event_kind == "new_anonymous_subscriber" {
         serde_json::json!({
             "kind": event_kind,
             "message": resolved_message,
+            "accentColor": settings.accent_color,
+            "displayDurationSec": settings.display_duration_sec,
+            "avatarUrl": avatar_data_url,
+            "soundPreset": settings.sound_preset,
+            "soundVolume": settings.sound_volume,
         })
     } else {
         serde_json::json!({
             "subscriberName": name,
             "kind": event_kind,
             "message": resolved_message,
+            "accentColor": settings.accent_color,
+            "displayDurationSec": settings.display_duration_sec,
+            "avatarUrl": avatar_data_url,
+            "soundPreset": settings.sound_preset,
+            "soundVolume": settings.sound_volume,
         })
     };
 
@@ -815,6 +941,9 @@ pub fn run() {
             check_backend_connection,
             get_youtube_workspace_status,
             send_test_event,
+            upload_avatar,
+            remove_avatar,
+            get_avatar_data_url,
             get_worker_status,
             start_worker,
             stop_worker
