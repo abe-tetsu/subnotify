@@ -679,7 +679,10 @@ function App() {
                     className="volume-slider"
                     max="1"
                     min="0"
-                    onChange={(e) => setSettings((c) => ({ ...c, soundVolume: Number(e.currentTarget.value) }))}
+                    onChange={(e) => {
+                      const v = Number(e.currentTarget.value);
+                      setSettings((c) => ({ ...c, soundVolume: v }));
+                    }}
                     step="0.1"
                     type="range"
                     value={settings.soundVolume}
