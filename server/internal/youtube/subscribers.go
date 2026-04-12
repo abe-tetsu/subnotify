@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 )
 
 type Subscriber struct {
@@ -51,4 +52,45 @@ func (s *OAuthService) FetchMySubscribers(ctx context.Context) ([]Subscriber, er
 	}
 
 	return subscribers, nil
+}
+
+type channelStatisticsResponse struct {
+	Items []struct {
+		Statistics struct {
+			SubscriberCount string `json:"subscriberCount"`
+		} `json:"statistics"`
+	} `json:"items"`
+}
+
+func (s *OAuthService) FetchSubscriberCount(ctx context.Context) (int, error) {
+	client, err := s.httpClient(ctx)
+	if err != nil {
+		return 0, err
+	}
+
+	resp, err := client.Get("https://www.googleapis.com/youtube/v3/channels?part=statistics&mine=true")
+	if err != nil {
+		return 0, fmt.Errorf("登録者数の取得に失敗: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return 0, fmt.Errorf("登録者数の取得に失敗 (HTTP %d)", resp.StatusCode)
+	}
+
+	var result channelStatisticsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return 0, fmt.Errorf("登録者数の解析に失敗: %w", err)
+	}
+
+	if len(result.Items) == 0 {
+		return 0, fmt.Errorf("チャンネル情報が見つかりません")
+	}
+
+	count, err := strconv.Atoi(result.Items[0].Statistics.SubscriberCount)
+	if err != nil {
+		return 0, fmt.Errorf("登録者数の変換に失敗: %w", err)
+	}
+
+	return count, nil
 }

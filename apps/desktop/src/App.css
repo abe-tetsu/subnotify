@@ -231,6 +231,66 @@ button {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
 }
 
+.worker-bar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 10px;
+  padding: 10px 16px;
+  border-radius: 14px;
+  background: #10233d;
+  color: #f8fbff;
+}
+
+.worker-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.worker-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.worker-actions {
+  margin-left: auto;
+}
+
+.worker-start-button,
+.worker-stop-button {
+  min-height: 34px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 10px;
+  font-weight: 700;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: transform 150ms ease, box-shadow 150ms ease;
+}
+
+.worker-start-button {
+  color: #fff;
+  background: linear-gradient(135deg, #38a169, #2f855a);
+  box-shadow: 0 6px 16px rgba(56, 161, 105, 0.3);
+}
+
+.worker-stop-button {
+  color: #fff;
+  background: linear-gradient(135deg, #e53e3e, #c53030);
+  box-shadow: 0 6px 16px rgba(229, 62, 62, 0.3);
+}
+
+.worker-start-button:hover,
+.worker-stop-button:hover {
+  transform: translateY(-1px);
+}
+
+.worker-message {
+  font-size: 0.8rem;
+  color: rgba(248, 251, 255, 0.7);
+}
+
 .tab-content {
   flex: 1;
   margin-top: 16px;
@@ -373,6 +433,12 @@ button {
 .field-input:focus {
   outline: 2px solid rgba(49, 130, 206, 0.18);
   border-color: rgba(49, 130, 206, 0.42);
+}
+
+.field-textarea {
+  min-height: 80px;
+  padding: 12px 14px;
+  resize: vertical;
 }
 
 .field-help {

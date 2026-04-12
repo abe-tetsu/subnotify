@@ -8,6 +8,7 @@ type NotifyEvent = {
   kind: string;
   subscriberName: string;
   subscriberChannelId: string;
+  message: string;
   createdAt: string;
 };
 
@@ -153,25 +154,35 @@ function LiveOverlay({ config }: { config: OverlayConfig }) {
     );
   }
 
+  const isAnonymous = activeEvent?.kind === "new_anonymous_subscriber";
+
   return (
     <main className="overlay-shell is-live">
       {activeEvent ? (
-        <section className={`overlay-card ${isVisible ? "visible" : ""}`}>
+        <section className={`overlay-card ${isVisible ? "visible" : ""} ${isAnonymous ? "is-anonymous-card" : ""}`}>
           <div className="overlay-header">
-            <span className="overlay-badge">新しい登録</span>
+            <span className="overlay-badge">
+              チャンネル登録ありがとう！
+            </span>
             <span className="overlay-workspace">{config.workspace}</span>
           </div>
 
           <div className="subscriber-row">
-            <div className="avatar-ring">
+            <div className={`avatar-ring ${isAnonymous ? "is-anonymous-ring" : ""}`}>
               <div className="avatar-core">
-                {(activeEvent.subscriberName || "S").slice(0, 1).toUpperCase()}
+                {isAnonymous
+                  ? "?"
+                  : (activeEvent.subscriberName || "S").slice(0, 1).toUpperCase()}
               </div>
             </div>
 
             <div className="subscriber-copy">
-              <p className="subscriber-label">チャンネル登録</p>
-              <h1 className="subscriber-name">{activeEvent.subscriberName}</h1>
+              <h1 className="subscriber-name">
+                {activeEvent.message
+                  || (isAnonymous
+                    ? "チャンネル登録ありがとう！"
+                    : `${activeEvent.subscriberName}さん、チャンネル登録ありがとう！`)}
+              </h1>
             </div>
           </div>
 

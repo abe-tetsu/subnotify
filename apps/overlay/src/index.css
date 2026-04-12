@@ -170,6 +170,7 @@ body {
 .subscriber-name {
   font-size: clamp(1.6rem, 4vw, 2.8rem);
   font-weight: 700;
+  white-space: pre-line;
 }
 
 .overlay-footer {
@@ -221,6 +222,16 @@ body {
 .is-live .avatar-ring {
   background: linear-gradient(135deg, rgba(121, 248, 193, 0.9), rgba(255, 255, 255, 0.88));
   box-shadow: 0 12px 36px rgba(121, 248, 193, 0.26);
+}
+
+.is-anonymous-card .overlay-badge {
+  background: rgba(191, 159, 255, 0.2);
+  color: #ece0ff;
+}
+
+.is-anonymous-ring {
+  background: linear-gradient(135deg, rgba(215, 191, 255, 0.9), rgba(255, 255, 255, 0.84)) !important;
+  box-shadow: 0 12px 36px rgba(183, 138, 255, 0.26) !important;
 }
 
 .countdown-bar {

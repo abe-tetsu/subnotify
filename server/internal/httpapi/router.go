@@ -220,25 +220,34 @@ func NewRouter(application *app.App, opts ...any) http.Handler {
 
 		var req struct {
 			SubscriberName string `json:"subscriberName"`
+			Kind           string `json:"kind"`
+			Message        string `json:"message"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request"})
 			return
 		}
 
-		name := req.SubscriberName
-		if name == "" {
-			name = "テストユーザー"
+		var event notify.NotifyEvent
+		if req.Kind == "new_anonymous_subscriber" {
+			event = notify.NewAnonymousSubscriberEvent()
+		} else {
+			name := req.SubscriberName
+			if name == "" {
+				name = "テストユーザー"
+			}
+			event = notify.NewSubscriberEvent(youtube.Subscriber{
+				ChannelID: "test-channel",
+				Title:     name,
+			})
 		}
-
-		event := notify.NewSubscriberEvent(youtube.Subscriber{
-			ChannelID: "test-channel",
-			Title:     name,
-		})
+		if req.Message != "" {
+			event.Message = req.Message
+		}
 
 		broker.Publish(workspace, event)
 
-		log.Printf("event sent to workspace %s: %s", workspace, name)
+		log.Printf("event sent to workspace %s: %s (kind: %s)", workspace, event.SubscriberName, event.Kind)
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "event": event})
 	})
 

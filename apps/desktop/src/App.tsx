@@ -35,6 +35,8 @@ type DesktopSettings = {
   youtubeChannelHint: string;
   youtubeClientId: string;
   youtubeClientSecret: string;
+  namedMessageTemplate: string;
+  anonymousMessageTemplate: string;
 };
 
 type BackendConnectionStatus = {
@@ -122,6 +124,8 @@ const fallbackSettings: DesktopSettings = {
   youtubeChannelHint: "",
   youtubeClientId: "",
   youtubeClientSecret: "",
+  namedMessageTemplate: "{subscriber}さん、チャンネル登録ありがとう！",
+  anonymousMessageTemplate: "チャンネル登録ありがとう！",
 };
 
 const fallbackBackendConnectionStatus: BackendConnectionStatus = {
@@ -273,6 +277,8 @@ function App() {
   const [isSendingTestEvent, setIsSendingTestEvent] = useState(false);
   const [testEventMessage, setTestEventMessage] = useState<string | null>(null);
   const [testSubscriberName, setTestSubscriberName] = useState("テストユーザー");
+  const [workerRunning, setWorkerRunning] = useState(false);
+  const [workerMessage, setWorkerMessage] = useState<string | null>(null);
 
   const hasUnsavedChanges =
     settings.workspaceLabel !== savedSettings.workspaceLabel ||
@@ -280,7 +286,9 @@ function App() {
     settings.overlayBaseUrl !== savedSettings.overlayBaseUrl ||
     settings.youtubeChannelHint !== savedSettings.youtubeChannelHint ||
     settings.youtubeClientId !== savedSettings.youtubeClientId ||
-    settings.youtubeClientSecret !== savedSettings.youtubeClientSecret;
+    settings.youtubeClientSecret !== savedSettings.youtubeClientSecret ||
+    settings.namedMessageTemplate !== savedSettings.namedMessageTemplate ||
+    settings.anonymousMessageTemplate !== savedSettings.anonymousMessageTemplate;
 
   const readinessItems = [
     {
@@ -365,11 +373,28 @@ function App() {
       }
     };
 
+    const loadWorkerStatus = async () => {
+      try {
+        const status = await invoke<{ running: boolean; message: string }>("get_worker_status");
+        if (isMounted) {
+          setWorkerRunning(status.running);
+        }
+      } catch (_error) {
+        // ignore
+      }
+    };
+
     void loadOverview();
     void loadSettings();
+    void loadWorkerStatus();
+
+    const workerInterval = window.setInterval(() => {
+      void loadWorkerStatus();
+    }, 3000);
 
     return () => {
       isMounted = false;
+      window.clearInterval(workerInterval);
     };
   }, []);
 
@@ -445,19 +470,40 @@ function App() {
     return `${base}/live/${workspace}?api=${encodeURIComponent(api)}`;
   })();
 
-  const handleSendTestEvent = async () => {
+  const handleSendTestEvent = async (kind?: string) => {
     setIsSendingTestEvent(true);
     setTestEventMessage(null);
 
     try {
       const result = await invoke<{ ok: boolean; message: string }>("send_test_event", {
-        subscriberName: testSubscriberName,
+        subscriberName: kind === "new_anonymous_subscriber" ? "" : testSubscriberName,
+        kind: kind ?? "new_subscriber",
       });
       setTestEventMessage(result.message);
     } catch (error) {
       setTestEventMessage(`テスト送信に失敗しました: ${String(error)}`);
     } finally {
       setIsSendingTestEvent(false);
+    }
+  };
+
+  const handleStartWorker = async () => {
+    try {
+      const result = await invoke<{ running: boolean; message: string }>("start_worker");
+      setWorkerRunning(result.running);
+      setWorkerMessage(result.message);
+    } catch (error) {
+      setWorkerMessage(`起動に失敗: ${String(error)}`);
+    }
+  };
+
+  const handleStopWorker = async () => {
+    try {
+      const result = await invoke<{ running: boolean; message: string }>("stop_worker");
+      setWorkerRunning(result.running);
+      setWorkerMessage(result.message);
+    } catch (error) {
+      setWorkerMessage(`停止に失敗: ${String(error)}`);
     }
   };
 
@@ -654,6 +700,35 @@ function App() {
           ロードマップ
         </button>
       </nav>
+
+      <div className="worker-bar">
+        <div className="worker-status">
+          <span className={`status-dot ${workerRunning ? "is-ready" : ""}`} />
+          <span className="worker-label">
+            {workerRunning ? "ポーリング実行中" : "ポーリング停止中"}
+          </span>
+        </div>
+        <div className="worker-actions">
+          {workerRunning ? (
+            <button
+              className="worker-stop-button"
+              onClick={() => void handleStopWorker()}
+              type="button"
+            >
+              停止
+            </button>
+          ) : (
+            <button
+              className="worker-start-button"
+              onClick={() => void handleStartWorker()}
+              type="button"
+            >
+              ポーリング開始
+            </button>
+          )}
+        </div>
+        {workerMessage ? <span className="worker-message">{workerMessage}</span> : null}
+      </div>
 
       <div className="tab-content">
         {activeTab === "dashboard" ? (
@@ -978,6 +1053,44 @@ function App() {
                     Google Cloud Console で取得した OAuth クライアントの認証情報です。設定を保存するとバックエンドに自動で反映されます。
                   </p>
                 </label>
+
+                <label className="field-group">
+                  <span className="field-label">名前あり通知のメッセージ</span>
+                  <p className="field-help">
+                    {"{subscriber}"} が登録者名に置換されます。例: {"{subscriber}"}さん、登録ありがとう！
+                  </p>
+                  <textarea
+                    className="field-input field-textarea"
+                    onChange={(event) => {
+                      const value = event.currentTarget.value;
+                      setSettings((current) => ({
+                        ...current,
+                        namedMessageTemplate: value,
+                      }));
+                    }}
+                    rows={3}
+                    value={settings.namedMessageTemplate}
+                  />
+                </label>
+
+                <label className="field-group">
+                  <span className="field-label">匿名通知のメッセージ</span>
+                  <p className="field-help">
+                    例: 登録ありがとう！
+                  </p>
+                  <textarea
+                    className="field-input field-textarea"
+                    onChange={(event) => {
+                      const value = event.currentTarget.value;
+                      setSettings((current) => ({
+                        ...current,
+                        anonymousMessageTemplate: value,
+                      }));
+                    }}
+                    rows={3}
+                    value={settings.anonymousMessageTemplate}
+                  />
+                </label>
               </div>
 
               <div className="action-row">
@@ -1121,12 +1234,20 @@ function App() {
 
                 <div className="action-row">
                   <button
-                    className={`primary-button ${isSendingTestEvent ? "is-disabled" : ""}`}
+                    className={`secondary-button ${isSendingTestEvent ? "is-disabled" : ""}`}
                     disabled={isSendingTestEvent}
-                    onClick={() => void handleSendTestEvent()}
+                    onClick={() => void handleSendTestEvent("new_subscriber")}
                     type="button"
                   >
-                    {isSendingTestEvent ? "送信中..." : "テスト通知を送信"}
+                    {isSendingTestEvent ? "送信中..." : "名前あり通知"}
+                  </button>
+                  <button
+                    className={`secondary-button ${isSendingTestEvent ? "is-disabled" : ""}`}
+                    disabled={isSendingTestEvent}
+                    onClick={() => void handleSendTestEvent("new_anonymous_subscriber")}
+                    type="button"
+                  >
+                    匿名通知
                   </button>
                 </div>
               </div>
@@ -1138,7 +1259,7 @@ function App() {
               ) : null}
 
               <p className="field-help">
-                先にオーバーレイをブラウザで開いてから、テスト通知を送信してください。
+                先にオーバーレイをブラウザで開いてから、テスト通知を押してください。
               </p>
             </article>
           </section>

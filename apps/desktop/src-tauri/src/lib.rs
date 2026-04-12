@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     fs,
     path::PathBuf,
+    process::{Child, Command},
     sync::{Arc, Mutex},
     time::{Duration, SystemTime},
 };
@@ -78,6 +79,18 @@ struct DesktopSettings {
     youtube_client_id: String,
     #[serde(default)]
     youtube_client_secret: String,
+    #[serde(default = "default_named_message")]
+    named_message_template: String,
+    #[serde(default = "default_anonymous_message")]
+    anonymous_message_template: String,
+}
+
+fn default_named_message() -> String {
+    "{subscriber}さん、チャンネル登録ありがとう！".to_string()
+}
+
+fn default_anonymous_message() -> String {
+    "チャンネル登録ありがとう！".to_string()
 }
 
 impl Default for DesktopSettings {
@@ -89,6 +102,8 @@ impl Default for DesktopSettings {
             youtube_channel_hint: "".to_string(),
             youtube_client_id: "".to_string(),
             youtube_client_secret: "".to_string(),
+            named_message_template: default_named_message(),
+            anonymous_message_template: default_anonymous_message(),
         }
     }
 }
@@ -119,6 +134,45 @@ impl DesktopSettingsState {
             .expect("desktop settings lock poisoned");
         *state = settings.clone();
         settings
+    }
+}
+
+struct WorkerProcessState {
+    inner: Arc<Mutex<Option<Child>>>,
+}
+
+impl WorkerProcessState {
+    fn new() -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    fn is_running(&self) -> bool {
+        let mut guard = self.inner.lock().expect("worker process lock poisoned");
+        if let Some(child) = guard.as_mut() {
+            match child.try_wait() {
+                Ok(Some(_)) => {
+                    *guard = None;
+                    false
+                }
+                Ok(None) => true,
+                Err(_) => {
+                    *guard = None;
+                    false
+                }
+            }
+        } else {
+            false
+        }
+    }
+
+    fn stop(&self) {
+        let mut guard = self.inner.lock().expect("worker process lock poisoned");
+        if let Some(mut child) = guard.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
     }
 }
 
@@ -508,6 +562,7 @@ struct SendTestEventResult {
 fn send_test_event(
     state: State<'_, DesktopSettingsState>,
     subscriber_name: String,
+    kind: Option<String>,
 ) -> SendTestEventResult {
     let settings = state.snapshot();
     let base_url = settings
@@ -552,17 +607,33 @@ fn send_test_event(
     } else {
         workspace
     };
+    let event_kind = kind.unwrap_or_else(|| "new_subscriber".to_string());
+    let resolved_message = if event_kind == "new_anonymous_subscriber" {
+        settings.anonymous_message_template.clone()
+    } else {
+        settings.named_message_template.replace("{subscriber}", &name)
+    };
+
     let url = format!("{base_url}/v1/events/{workspace}");
-    let body = serde_json::json!({
-        "subscriberName": name,
-    });
+    let body = if event_kind == "new_anonymous_subscriber" {
+        serde_json::json!({
+            "kind": event_kind,
+            "message": resolved_message,
+        })
+    } else {
+        serde_json::json!({
+            "subscriberName": name,
+            "kind": event_kind,
+            "message": resolved_message,
+        })
+    };
 
     match client.post(&url).json(&body).send() {
         Ok(response) => {
             if response.status().is_success() {
                 SendTestEventResult {
                     ok: true,
-                    message: format!("「{name}」のテスト通知を送信しました。"),
+                    message: "テスト通知を送信しました。".to_string(),
                 }
             } else {
                 SendTestEventResult {
@@ -575,6 +646,89 @@ fn send_test_event(
             ok: false,
             message: format!("テスト送信に失敗: {error}"),
         },
+    }
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkerStatus {
+    running: bool,
+    message: String,
+}
+
+#[tauri::command]
+fn get_worker_status(state: State<'_, WorkerProcessState>) -> WorkerStatus {
+    let running = state.is_running();
+    WorkerStatus {
+        running,
+        message: if running {
+            "ポーリング実行中".to_string()
+        } else {
+            "停止中".to_string()
+        },
+    }
+}
+
+#[tauri::command]
+fn start_worker(
+    settings_state: State<'_, DesktopSettingsState>,
+    worker_state: State<'_, WorkerProcessState>,
+) -> WorkerStatus {
+    if worker_state.is_running() {
+        return WorkerStatus {
+            running: true,
+            message: "すでに実行中です".to_string(),
+        };
+    }
+
+    let settings = settings_state.snapshot();
+    let workspace = {
+        let w = settings
+            .workspace_label
+            .trim()
+            .replace(' ', "-")
+            .to_lowercase();
+        if w.is_empty() {
+            "default-workspace".to_string()
+        } else {
+            w
+        }
+    };
+
+    let api_url = settings.api_base_url.trim().trim_end_matches('/').to_string();
+
+    let result = Command::new("go")
+        .args(["run", "./cmd/worker"])
+        .current_dir("/Users/abetetsuya/app/subnotify/server")
+        .env("SUBNOTIFY_NOTIFY_API_URL", &api_url)
+        .env("SUBNOTIFY_WORKSPACE", &workspace)
+        .spawn();
+
+    match result {
+        Ok(child) => {
+            let mut guard = worker_state
+                .inner
+                .lock()
+                .expect("worker process lock poisoned");
+            *guard = Some(child);
+            WorkerStatus {
+                running: true,
+                message: format!("ポーリング開始 (workspace: {workspace})"),
+            }
+        }
+        Err(error) => WorkerStatus {
+            running: false,
+            message: format!("ワーカーの起動に失敗: {error}"),
+        },
+    }
+}
+
+#[tauri::command]
+fn stop_worker(state: State<'_, WorkerProcessState>) -> WorkerStatus {
+    state.stop();
+    WorkerStatus {
+        running: false,
+        message: "ポーリングを停止しました".to_string(),
     }
 }
 
@@ -641,13 +795,17 @@ pub fn run() {
             }
             Ok(())
         })
+        .manage(WorkerProcessState::new())
         .invoke_handler(tauri::generate_handler![
             get_desktop_overview,
             get_desktop_settings,
             update_desktop_settings,
             check_backend_connection,
             get_youtube_workspace_status,
-            send_test_event
+            send_test_event,
+            get_worker_status,
+            start_worker,
+            stop_worker
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

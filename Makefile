@@ -77,6 +77,50 @@ build-overlay: overlay-install
 test-server:
 	cd $(SERVER_DIR) && go test ./...
 
+GCLOUD := /Users/abetetsuya/google-cloud-sdk/bin/gcloud
+GCP_PROJECT := subscreen
+GCP_REGION := asia-northeast1
+
+deploy: deploy-api deploy-overlay
+	@printf "Deploy complete.\n"
+
+deploy-api:
+	@printf "Deploying API to Cloud Run...\n"
+	@if [ ! -f $(SERVER_DIR)/.env.local ]; then \
+		printf "Error: server/.env.local not found. Create it with SUBNOTIFY_YOUTUBE_CLIENT_ID and SUBNOTIFY_YOUTUBE_CLIENT_SECRET.\n" >&2; \
+		exit 1; \
+	fi
+	$(eval YT_CLIENT_ID := $(shell grep SUBNOTIFY_YOUTUBE_CLIENT_ID $(SERVER_DIR)/.env.local | cut -d= -f2))
+	$(eval YT_CLIENT_SECRET := $(shell grep SUBNOTIFY_YOUTUBE_CLIENT_SECRET $(SERVER_DIR)/.env.local | cut -d= -f2))
+	cd $(SERVER_DIR) && $(GCLOUD) run deploy subnotify-api \
+		--source=. \
+		--project=$(GCP_PROJECT) \
+		--region=$(GCP_REGION) \
+		--port=8080 \
+		--max-instances=1 \
+		--min-instances=0 \
+		--allow-unauthenticated \
+		--memory=256Mi \
+		--cpu=1 \
+		--timeout=300 \
+		--set-env-vars="SUBNOTIFY_YOUTUBE_CLIENT_ID=$(YT_CLIENT_ID),SUBNOTIFY_YOUTUBE_CLIENT_SECRET=$(YT_CLIENT_SECRET),SUBNOTIFY_PUBLIC_BASE_URL=https://api.abetetsu.net,SUBNOTIFY_DATA_DIR=/tmp/subnotify-data" \
+		--quiet
+
+deploy-overlay:
+	@printf "Deploying overlay to Cloud Run...\n"
+	cd $(OVERLAY_DIR) && $(GCLOUD) run deploy subnotify-overlay \
+		--source=. \
+		--project=$(GCP_PROJECT) \
+		--region=$(GCP_REGION) \
+		--port=8080 \
+		--max-instances=1 \
+		--min-instances=0 \
+		--allow-unauthenticated \
+		--memory=128Mi \
+		--cpu=1 \
+		--timeout=10 \
+		--quiet
+
 help:
 	@printf "Available targets:\n"
 	@printf "  make           Start the desktop app via Tauri\n"
@@ -89,3 +133,6 @@ help:
 	@printf "  make build-desktop  Build the desktop frontend\n"
 	@printf "  make build-overlay  Build the overlay frontend\n"
 	@printf "  make test-server    Run Go tests under server\n"
+	@printf "  make deploy         Deploy API + overlay to Cloud Run\n"
+	@printf "  make deploy-api     Deploy API only\n"
+	@printf "  make deploy-overlay Deploy overlay only\n"

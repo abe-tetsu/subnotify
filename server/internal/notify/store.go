@@ -14,15 +14,22 @@ import (
 )
 
 const (
-	seenSubscribersFile = "seen_subscribers.json"
-	pendingEventsFile   = "pending_events.json"
+	seenSubscribersFile  = "seen_subscribers.json"
+	pendingEventsFile    = "pending_events.json"
+	subscriberStatsFile  = "subscriber_stats.json"
 )
+
+type SubscriberStats struct {
+	LastTotalCount int    `json:"lastTotalCount"`
+	LastUpdated    string `json:"lastUpdated"`
+}
 
 type NotifyEvent struct {
 	ID                    string `json:"id"`
 	Kind                  string `json:"kind"`
 	SubscriberName        string `json:"subscriberName"`
 	SubscriberChannelID   string `json:"subscriberChannelId"`
+	Message               string `json:"message"`
 	CreatedAt             string `json:"createdAt"`
 }
 
@@ -140,6 +147,40 @@ func (s *Store) loadPendingEventsLocked() []NotifyEvent {
 	return events
 }
 
+func (s *Store) LoadStats() SubscriberStats {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	path := filepath.Join(s.dataDir, subscriberStatsFile)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return SubscriberStats{}
+	}
+
+	var stats SubscriberStats
+	if err := json.Unmarshal(data, &stats); err != nil {
+		return SubscriberStats{}
+	}
+	return stats
+}
+
+func (s *Store) SaveStats(stats SubscriberStats) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	data, err := json.MarshalIndent(stats, "", "  ")
+	if err != nil {
+		return fmt.Errorf("stats の保存に失敗: %w", err)
+	}
+
+	path := filepath.Join(s.dataDir, subscriberStatsFile)
+	tmpPath := path + ".tmp"
+	if err := os.WriteFile(tmpPath, data, 0600); err != nil {
+		return fmt.Errorf("stats ファイルの書き込みに失敗: %w", err)
+	}
+	return os.Rename(tmpPath, path)
+}
+
 func NewEventID() string {
 	b := make([]byte, 8)
 	_, _ = rand.Read(b)
@@ -152,6 +193,16 @@ func NewSubscriberEvent(sub youtube.Subscriber) NotifyEvent {
 		Kind:                "new_subscriber",
 		SubscriberName:      sub.Title,
 		SubscriberChannelID: sub.ChannelID,
+		CreatedAt:           time.Now().UTC().Format(time.RFC3339),
+	}
+}
+
+func NewAnonymousSubscriberEvent() NotifyEvent {
+	return NotifyEvent{
+		ID:                  NewEventID(),
+		Kind:                "new_anonymous_subscriber",
+		SubscriberName:      "",
+		SubscriberChannelID: "",
 		CreatedAt:           time.Now().UTC().Format(time.RFC3339),
 	}
 }

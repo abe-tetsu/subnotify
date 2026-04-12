@@ -30,9 +30,10 @@ func main() {
 
 	initialized := false
 	seen := store.LoadSeenSubscribers()
+	stats := store.LoadStats()
 	if len(seen) > 0 {
 		initialized = true
-		log.Printf("worker: 既知の登録者 %d 人をファイルから復元", len(seen))
+		log.Printf("worker: 既知の登録者 %d 人をファイルから復元 (前回の総登録者数: %d)", len(seen), stats.LastTotalCount)
 	}
 
 	ticker := time.NewTicker(time.Duration(cfg.PollingIntervalSec) * time.Second)
@@ -49,49 +50,79 @@ func main() {
 				continue
 			}
 
-			subscribers, err := oauth.FetchMySubscribers(context.Background())
+			// 総登録者数を取得
+			totalCount, err := oauth.FetchSubscriberCount(context.Background())
 			if err != nil {
 				if errors.Is(err, os.ErrNotExist) {
 					log.Printf("worker: トークンファイルが見つかりません")
 				} else {
-					log.Printf("worker: 登録者取得エラー: %v", err)
+					log.Printf("worker: 登録者数取得エラー: %v", err)
 				}
 				continue
 			}
 
+			// 公開登録者一覧を取得
+			subscribers, err := oauth.FetchMySubscribers(context.Background())
+			if err != nil {
+				log.Printf("worker: 登録者一覧取得エラー: %v", err)
+				continue
+			}
+
+			// 初回: 記録するだけで通知しない
 			if !initialized {
 				for _, sub := range subscribers {
 					seen[sub.ChannelID] = true
 				}
 				initialized = true
+				stats.LastTotalCount = totalCount
+				stats.LastUpdated = time.Now().UTC().Format(time.RFC3339)
 				if err := store.SaveSeenSubscribers(seen); err != nil {
 					log.Printf("worker: 既知登録者の保存エラー: %v", err)
 				}
-				log.Printf("worker: 初回取得完了。既存登録者 %d 人を記録。", len(seen))
+				if err := store.SaveStats(stats); err != nil {
+					log.Printf("worker: stats の保存エラー: %v", err)
+				}
+				log.Printf("worker: 初回取得完了。公開登録者 %d 人、総登録者数 %d 人を記録。", len(seen), totalCount)
 				continue
 			}
 
-			newSubs := notify.DetectNewSubscribers(subscribers, seen)
-			if len(newSubs) == 0 {
-				continue
-			}
-
-			for _, sub := range newSubs {
+			// 公開登録者の差分検出（名前付き通知）
+			newPublicSubs := notify.DetectNewSubscribers(subscribers, seen)
+			for _, sub := range newPublicSubs {
 				seen[sub.ChannelID] = true
-				log.Printf("worker: 新規登録者を検出: %s", sub.Title)
-
-				if err := sendNotifyEvent(httpClient, cfg.NotifyAPIURL, cfg.Workspace, sub.Title); err != nil {
+				log.Printf("worker: 新規公開登録者を検出: %s", sub.Title)
+				if err := sendEvent(httpClient, cfg.NotifyAPIURL, cfg.Workspace, notify.NewSubscriberEvent(sub)); err != nil {
 					log.Printf("worker: 通知送信エラー: %v", err)
-				} else {
-					log.Printf("worker: 通知送信完了: %s", sub.Title)
 				}
 			}
 
+			// 匿名登録者の検出
+			totalIncrease := totalCount - stats.LastTotalCount
+			publicIncrease := len(newPublicSubs)
+			anonymousCount := totalIncrease - publicIncrease
+
+			if anonymousCount > 0 {
+				log.Printf("worker: 匿名登録者 %d 人を検出 (総登録者: %d→%d, 公開新規: %d)", anonymousCount, stats.LastTotalCount, totalCount, publicIncrease)
+				for i := 0; i < anonymousCount; i++ {
+					if err := sendEvent(httpClient, cfg.NotifyAPIURL, cfg.Workspace, notify.NewAnonymousSubscriberEvent()); err != nil {
+						log.Printf("worker: 匿名通知送信エラー: %v", err)
+					}
+				}
+			}
+
+			// 状態を更新
+			stats.LastTotalCount = totalCount
+			stats.LastUpdated = time.Now().UTC().Format(time.RFC3339)
 			if err := store.SaveSeenSubscribers(seen); err != nil {
 				log.Printf("worker: 既知登録者の保存エラー: %v", err)
 			}
+			if err := store.SaveStats(stats); err != nil {
+				log.Printf("worker: stats の保存エラー: %v", err)
+			}
 
-			log.Printf("worker: %d 件の新規登録通知を送出。", len(newSubs))
+			if len(newPublicSubs) > 0 || anonymousCount > 0 {
+				log.Printf("worker: 通知送出完了 (公開: %d, 匿名: %d)", len(newPublicSubs), anonymousCount)
+			}
 
 		case <-shutdownSignal:
 			log.Printf("subnotify worker shutting down")
@@ -100,11 +131,12 @@ func main() {
 	}
 }
 
-func sendNotifyEvent(client *http.Client, apiURL string, workspace string, subscriberName string) error {
+func sendEvent(client *http.Client, apiURL string, workspace string, event notify.NotifyEvent) error {
 	url := strings.TrimRight(apiURL, "/") + "/v1/events/" + workspace
 
 	body, err := json.Marshal(map[string]string{
-		"subscriberName": subscriberName,
+		"subscriberName": event.SubscriberName,
+		"kind":           event.Kind,
 	})
 	if err != nil {
 		return fmt.Errorf("JSON の作成に失敗: %w", err)
