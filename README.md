@@ -6,6 +6,7 @@ v2 project workspace for the successor to `subscreen`.
 
 - Project skeleton has been created.
 - The first visible desktop shell is implemented in `apps/desktop`.
+- A first Go backend scaffold is implemented in `server`.
 - `apps/desktop` uses `Tauri + React` and follows the visual direction of `subscreen`.
 - The desktop app currently shows:
   - dashboard
@@ -22,17 +23,22 @@ v2 project workspace for the successor to `subscreen`.
   - created the first Tauri desktop app shell in `apps/desktop`
   - added a minimal Rust command to return desktop overview data
   - added initial v2 UI based on the `subscreen` style
-  - added desktop settings UI for API URL, overlay URL, workspace label, and channel hint
-  - added Tauri-side local persistence for desktop settings
-  - confirmed `npm run build` and `cargo check` pass for `apps/desktop`
+- added desktop settings UI for API URL, overlay URL, workspace label, and channel hint
+- added Tauri-side local persistence for desktop settings
+- initialized the Go module under `server`
+- added a minimal API server with `/health` and `/v1/meta`
+- added a worker scaffold with heartbeat logging
+- added a root `Makefile` so the desktop app can be started from the project root
+- added a `make stop` target and improved local shutdown behavior for `make dev`
+- adjusted `make stop` so it quietly handles lingering local dev processes
+- confirmed `npm run build` and `cargo check` pass for `apps/desktop`
 
 - In progress:
   - defining the v2 desktop control panel shape
   - refining the separation between desktop, overlay, and Go backend responsibilities
-  - preparing the desktop app to connect to the future Go backend
+  - preparing the desktop app to connect to the Go backend health endpoint
 
 - Not started yet:
-  - Go backend implementation
   - public overlay frontend
   - YouTube OAuth and subscriber polling
   - anonymous subscriber notification logic
@@ -54,11 +60,10 @@ v2 project workspace for the successor to `subscreen`.
   - add a clearer onboarding flow for first-time setup
 
 - Backend
-  - initialize Go module under `server`
-  - add API server entrypoint
-  - add worker entrypoint for polling jobs
-  - define config loading from environment variables
   - decide storage strategy for channel state and notification history
+  - add channel and auth endpoints
+  - add structured logging and request logging
+  - add real worker jobs for subscriber polling
 
 - YouTube integration
   - implement OAuth flow on the backend side
@@ -83,9 +88,34 @@ v2 project workspace for the successor to `subscreen`.
 ## Run the desktop app
 
 ```bash
-cd /Users/abetetsuya/app/subnotify/apps/desktop
-npm install
-npm run tauri dev
+cd /Users/abetetsuya/app/subnotify
+make
+```
+
+## Run the backend API
+
+```bash
+cd /Users/abetetsuya/app/subnotify/server
+go run ./cmd/api
+```
+
+## Run the backend worker
+
+```bash
+cd /Users/abetetsuya/app/subnotify/server
+go run ./cmd/worker
+```
+
+## Useful make targets
+
+```bash
+cd /Users/abetetsuya/app/subnotify
+make help
+make
+make api
+make worker
+make dev
+make stop
 ```
 
 ## Secret handling

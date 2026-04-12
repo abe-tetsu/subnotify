@@ -357,12 +357,13 @@ function App() {
                   <span className="field-label">Workspace Label</span>
                   <input
                     className="field-input"
-                    onChange={(event) =>
+                    onChange={(event) => {
+                      const value = event.currentTarget.value;
                       setSettings((current) => ({
                         ...current,
-                        workspaceLabel: event.currentTarget.value,
-                      }))
-                    }
+                        workspaceLabel: value,
+                      }));
+                    }}
                     type="text"
                     value={settings.workspaceLabel}
                   />
@@ -373,12 +374,13 @@ function App() {
                   <span className="field-label">API Base URL</span>
                   <input
                     className="field-input"
-                    onChange={(event) =>
+                    onChange={(event) => {
+                      const value = event.currentTarget.value;
                       setSettings((current) => ({
                         ...current,
-                        apiBaseUrl: event.currentTarget.value,
-                      }))
-                    }
+                        apiBaseUrl: value,
+                      }));
+                    }}
                     placeholder="http://localhost:8080"
                     type="url"
                     value={settings.apiBaseUrl}
@@ -392,12 +394,13 @@ function App() {
                   <span className="field-label">Overlay Base URL</span>
                   <input
                     className="field-input"
-                    onChange={(event) =>
+                    onChange={(event) => {
+                      const value = event.currentTarget.value;
                       setSettings((current) => ({
                         ...current,
-                        overlayBaseUrl: event.currentTarget.value,
-                      }))
-                    }
+                        overlayBaseUrl: value,
+                      }));
+                    }}
                     placeholder="https://overlay.example.com/subnotify"
                     type="url"
                     value={settings.overlayBaseUrl}
@@ -411,12 +414,13 @@ function App() {
                   <span className="field-label">YouTube Channel Hint</span>
                   <input
                     className="field-input"
-                    onChange={(event) =>
+                    onChange={(event) => {
+                      const value = event.currentTarget.value;
                       setSettings((current) => ({
                         ...current,
-                        youtubeChannelHint: event.currentTarget.value,
-                      }))
-                    }
+                        youtubeChannelHint: value,
+                      }));
+                    }}
                     placeholder="@your-channel"
                     type="text"
                     value={settings.youtubeChannelHint}
