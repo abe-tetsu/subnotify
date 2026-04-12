@@ -7,6 +7,7 @@ use std::{
     sync::{Arc, Mutex},
     time::{Duration, SystemTime},
 };
+use uuid::Uuid;
 use tauri::{AppHandle, Manager, Runtime, State};
 
 const DESKTOP_SETTINGS_FILE_NAME: &str = "desktop-settings.json";
@@ -71,6 +72,7 @@ struct YouTubeWorkspaceStatus {
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct DesktopSettings {
+    #[serde(default = "generate_workspace_id")]
     workspace_label: String,
     api_base_url: String,
     overlay_base_url: String,
@@ -85,6 +87,10 @@ struct DesktopSettings {
     anonymous_message_template: String,
 }
 
+fn generate_workspace_id() -> String {
+    Uuid::new_v4().to_string()
+}
+
 fn default_named_message() -> String {
     "{subscriber}さん、チャンネル登録ありがとう！".to_string()
 }
@@ -96,7 +102,7 @@ fn default_anonymous_message() -> String {
 impl Default for DesktopSettings {
     fn default() -> Self {
         Self {
-            workspace_label: "Default Workspace".to_string(),
+            workspace_label: generate_workspace_id(),
             api_base_url: "http://localhost:8080".to_string(),
             overlay_base_url: "https://overlay.abetetsu.net".to_string(),
             youtube_channel_hint: "".to_string(),
@@ -785,7 +791,13 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .manage(desktop_settings_state)
         .setup(move |app| {
-            if let Ok(Some(settings)) = load_persisted_desktop_settings(app.handle()) {
+            if let Ok(Some(mut settings)) = load_persisted_desktop_settings(app.handle()) {
+                if settings.workspace_label.trim().is_empty()
+                    || settings.workspace_label == "Default Workspace"
+                {
+                    settings.workspace_label = generate_workspace_id();
+                    let _ = persist_desktop_settings(&app.handle(), &settings);
+                }
                 let updated = desktop_settings_state_for_setup.update(settings);
                 if !updated.youtube_client_id.trim().is_empty()
                     && !updated.youtube_client_secret.trim().is_empty()

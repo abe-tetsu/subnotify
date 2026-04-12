@@ -3900,6 +3900,7 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-opener",
  "urlencoding",
+ "uuid",
 ]
 
 [[package]]

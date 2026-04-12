@@ -8,7 +8,6 @@ type DesktopSettings = {
   workspaceLabel: string;
   apiBaseUrl: string;
   overlayBaseUrl: string;
-  youtubeChannelHint: string;
   youtubeClientId: string;
   youtubeClientSecret: string;
   namedMessageTemplate: string;
@@ -29,7 +28,6 @@ type YouTubeWorkspaceStatus = {
   checkedAt: string;
   connected: boolean;
   stage: string;
-  channelHint: string;
   channelLabel: string;
   oauthStartUrl: string | null;
   connectedAt: string | null;
@@ -44,7 +42,6 @@ const fallbackSettings: DesktopSettings = {
   workspaceLabel: "Default Workspace",
   apiBaseUrl: "http://localhost:8080",
   overlayBaseUrl: "https://overlay.abetetsu.net",
-  youtubeChannelHint: "",
   youtubeClientId: "",
   youtubeClientSecret: "",
   namedMessageTemplate: "{subscriber}さん、チャンネル登録ありがとう！",
@@ -56,7 +53,6 @@ const fallbackYouTubeStatus: YouTubeWorkspaceStatus = {
   checkedAt: "",
   connected: false,
   stage: "not_connected",
-  channelHint: "",
   channelLabel: "未接続",
   oauthStartUrl: null,
   connectedAt: null,
@@ -67,11 +63,10 @@ const fallbackYouTubeStatus: YouTubeWorkspaceStatus = {
 
 async function fetchYouTubeWorkspaceStatus(
   apiBaseUrl: string,
-  channelHint: string,
 ): Promise<YouTubeWorkspaceStatus> {
   return invoke<YouTubeWorkspaceStatus>("get_youtube_workspace_status", {
     apiBaseUrl,
-    youtubeChannelHint: channelHint,
+    youtubeChannelHint: "",
   });
 }
 
@@ -100,7 +95,6 @@ function App() {
     settings.workspaceLabel !== savedSettings.workspaceLabel ||
     settings.apiBaseUrl !== savedSettings.apiBaseUrl ||
     settings.overlayBaseUrl !== savedSettings.overlayBaseUrl ||
-    settings.youtubeChannelHint !== savedSettings.youtubeChannelHint ||
     settings.youtubeClientId !== savedSettings.youtubeClientId ||
     settings.youtubeClientSecret !== savedSettings.youtubeClientSecret ||
     settings.namedMessageTemplate !== savedSettings.namedMessageTemplate ||
@@ -130,7 +124,6 @@ function App() {
           });
           const ytStatus = await fetchYouTubeWorkspaceStatus(
             nextSettings.apiBaseUrl,
-            nextSettings.youtubeChannelHint,
           );
           if (isMounted) {
             setBackendConnectionStatus(connStatus);
@@ -178,7 +171,6 @@ function App() {
       try {
         const status = await fetchYouTubeWorkspaceStatus(
           savedSettings.apiBaseUrl,
-          savedSettings.youtubeChannelHint,
         );
         if (!cancelled) {
           setYouTubeWorkspaceStatus(status);
@@ -197,7 +189,7 @@ function App() {
       window.clearInterval(intervalId);
       window.removeEventListener("focus", onFocus);
     };
-  }, [isAwaitingOAuthCompletion, savedSettings.apiBaseUrl, savedSettings.youtubeChannelHint, youtubeWorkspaceStatus.connected, youtubeWorkspaceStatus.stage]);
+  }, [isAwaitingOAuthCompletion, savedSettings.apiBaseUrl, youtubeWorkspaceStatus.connected, youtubeWorkspaceStatus.stage]);
 
   const handleStartWorker = async () => {
     try {
@@ -244,7 +236,6 @@ function App() {
     try {
       const status = await fetchYouTubeWorkspaceStatus(
         savedSettings.apiBaseUrl,
-        savedSettings.youtubeChannelHint,
       );
       setYouTubeWorkspaceStatus(status);
 
@@ -522,16 +513,13 @@ function App() {
               <p className="panel-label">接続設定</p>
 
               <div className="settings-form">
-                <label className="field-group">
-                  <span className="field-label">Workspace Label</span>
-                  <input
-                    className="field-input"
-                    onChange={(e) => { const v = e.currentTarget.value; setSettings((c) => ({ ...c, workspaceLabel: v })); }}
-                    type="text"
-                    value={settings.workspaceLabel}
-                  />
-                  <p className="hint-text">チャンネル固有のワークスペース名です。URL に使われます。</p>
-                </label>
+                <div className="field-group">
+                  <span className="field-label">ワークスペース ID</span>
+                  <div className="url-box">
+                    <code>{savedSettings.workspaceLabel}</code>
+                  </div>
+                  <p className="hint-text">自動生成された一意のIDです。オーバーレイ URL に使われます。</p>
+                </div>
 
                 <label className="field-group">
                   <span className="field-label">API Base URL</span>
@@ -550,17 +538,6 @@ function App() {
                     onChange={(e) => { const v = e.currentTarget.value; setSettings((c) => ({ ...c, overlayBaseUrl: v })); }}
                     type="text"
                     value={settings.overlayBaseUrl}
-                  />
-                </label>
-
-                <label className="field-group">
-                  <span className="field-label">YouTube Channel Hint</span>
-                  <input
-                    className="field-input"
-                    onChange={(e) => { const v = e.currentTarget.value; setSettings((c) => ({ ...c, youtubeChannelHint: v })); }}
-                    placeholder="@your-channel"
-                    type="text"
-                    value={settings.youtubeChannelHint}
                   />
                 </label>
 
