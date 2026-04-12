@@ -37,6 +37,8 @@ v2 project workspace for the successor to `subscreen`.
   - improved `make dev` so it can start the local API if needed and then launch the desktop app from a single terminal
   - added a backend YouTube connection status scaffold endpoint at `/v1/youtube/connection`
   - added a desktop YouTube workspace card and status check flow
+  - added a scaffold OAuth start page at `/v1/youtube/auth/start`
+  - added desktop links to open the scaffold OAuth start page from the saved backend state
   - expanded `make stop` so it also cleans up the compiled local Go API process left by `go run`
   - confirmed `npm run build`, `cargo check`, and `go test ./...` pass
 
@@ -64,7 +66,7 @@ v2 project workspace for the successor to `subscreen`.
   - add overlay preview URL helpers
   - add a clearer onboarding flow for first-time setup
   - surface backend auth/channel connection state in the desktop app
-  - wire the YouTube OAuth start button and completion callback into the desktop app
+  - wire the YouTube OAuth completion callback into the desktop app
 
 - Backend
   - decide storage strategy for channel state and notification history
@@ -159,8 +161,9 @@ make dev
 6. Confirm the message says the YouTube connection is not completed yet but the flow data was fetched.
 7. Open the `ダッシュボード` tab and confirm the `YouTube Workspace` card shows:
    - `Stage` as `not_connected`
-   - `OAuth Start URL` as `http://localhost:8080/v1/youtube/auth/start`
+   - `OAuth Start URL` as `http://localhost:8080/v1/youtube/auth/start?channel_hint=...` when a hint is set
    - the channel hint you entered, if any
+8. Click `OAuth 開始ページを開く` and confirm a browser tab opens the scaffold auth page.
 
 ## Secret handling
 

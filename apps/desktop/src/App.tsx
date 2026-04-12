@@ -94,7 +94,7 @@ const fallbackOverview: DesktopOverview = {
     },
   ],
   nextMilestones: [
-    "YouTube OAuth 開始ボタンと認可完了の反映を desktop につなぐ",
+    "YouTube OAuth 認可完了後の反映を desktop につなぐ",
     "backend の YouTube 状態を永続化できるようにする",
     "overlay の v2 デザインを公開 URL 前提で組み直す",
   ],
@@ -150,6 +150,10 @@ function statusClassName(state: ServiceStatus["state"]) {
 
 function isConfigured(value: string) {
   return value.trim().length > 0;
+}
+
+function canOpenOAuthStartUrl(status: YouTubeWorkspaceStatus) {
+  return Boolean(status.oauthStartUrl && status.oauthStartUrl.trim() !== "");
 }
 
 function App() {
@@ -550,6 +554,16 @@ function App() {
                 >
                   {isCheckingYouTube ? "確認中..." : "YouTube 状態を確認"}
                 </button>
+                {canOpenOAuthStartUrl(youtubeWorkspaceStatus) ? (
+                  <a
+                    className="secondary-button button-link"
+                    href={youtubeWorkspaceStatus.oauthStartUrl ?? "#"}
+                    rel="noreferrer"
+                    target="_blank"
+                  >
+                    OAuth 開始ページを開く
+                  </a>
+                ) : null}
               </div>
             </article>
 
@@ -684,6 +698,16 @@ function App() {
                 >
                   {isCheckingYouTube ? "確認中..." : "YouTube 状態を確認"}
                 </button>
+                {canOpenOAuthStartUrl(youtubeWorkspaceStatus) ? (
+                  <a
+                    className="secondary-button button-link"
+                    href={youtubeWorkspaceStatus.oauthStartUrl ?? "#"}
+                    rel="noreferrer"
+                    target="_blank"
+                  >
+                    OAuth 開始ページを開く
+                  </a>
+                ) : null}
               </div>
 
               <p className={settingsMessage?.includes("失敗") ? "error-text" : "field-help"}>
@@ -707,8 +731,8 @@ function App() {
               <div className="timeline-list">
                 {[
                   "desktop で API Base URL と Channel Hint を確認する",
-                  "backend の YouTube 状態 endpoint から OAuth 開始 URL を取得する",
-                  "次の実装で OAuth 開始ボタンと認可完了後の反映をつなぐ",
+                  "backend の YouTube 状態 endpoint から OAuth 開始 URL を取得して開く",
+                  "次の実装で認可完了後の反映をつなぐ",
                 ].map((line, index) => (
                   <div className="timeline-item" key={line}>
                     <span className="timeline-index">{index + 1}</span>

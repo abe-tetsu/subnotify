@@ -281,6 +281,13 @@ button {
   box-shadow: 0 10px 24px rgba(12, 40, 72, 0.18);
 }
 
+.button-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+}
+
 .secondary-button:hover {
   transform: translateY(-1px);
 }

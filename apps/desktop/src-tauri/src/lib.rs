@@ -176,7 +176,7 @@ fn get_desktop_overview() -> DesktopOverview {
             },
         ],
         next_milestones: vec![
-            "YouTube OAuth 開始ボタンと認可完了の反映を desktop につなぐ".to_string(),
+            "YouTube OAuth 認可完了後の反映を desktop につなぐ".to_string(),
             "backend の YouTube 状態を永続化できるようにする".to_string(),
             "公開 overlay の v2 デザインを分離して作る".to_string(),
         ],
