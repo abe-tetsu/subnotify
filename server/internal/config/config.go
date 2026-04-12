@@ -20,6 +20,7 @@ type Config struct {
 	DataDir                 string
 	PollingIntervalSec      int
 	NotifyAPIURL            string
+	Workspace               string
 }
 
 func Load() Config {
@@ -43,6 +44,7 @@ func Load() Config {
 		DataDir:            envOrDefault("SUBNOTIFY_DATA_DIR", ".subnotify-data"),
 		PollingIntervalSec: envOrDefaultInt("SUBNOTIFY_POLLING_INTERVAL_SEC", 30),
 		NotifyAPIURL:       envOrDefault("SUBNOTIFY_NOTIFY_API_URL", "https://api.abetetsu.net"),
+		Workspace:          envOrDefault("SUBNOTIFY_WORKSPACE", "default-workspace"),
 	}
 }
 

@@ -4,40 +4,65 @@ import (
 	"sync"
 )
 
-type Broker struct {
-	mu          sync.Mutex
+type workspaceBroker struct {
 	subscribers map[chan NotifyEvent]struct{}
 	pending     []NotifyEvent
 	nextSeq     uint64
 }
 
+type Broker struct {
+	mu         sync.Mutex
+	workspaces map[string]*workspaceBroker
+}
+
 func NewBroker() *Broker {
 	return &Broker{
-		subscribers: make(map[chan NotifyEvent]struct{}),
+		workspaces: make(map[string]*workspaceBroker),
 	}
 }
 
-func (b *Broker) Subscribe() chan NotifyEvent {
+func (b *Broker) getOrCreate(workspace string) *workspaceBroker {
+	wb, ok := b.workspaces[workspace]
+	if !ok {
+		wb = &workspaceBroker{
+			subscribers: make(map[chan NotifyEvent]struct{}),
+		}
+		b.workspaces[workspace] = wb
+	}
+	return wb
+}
+
+func (b *Broker) Subscribe(workspace string) chan NotifyEvent {
 	ch := make(chan NotifyEvent, 100)
 	b.mu.Lock()
-	b.subscribers[ch] = struct{}{}
+	wb := b.getOrCreate(workspace)
+	wb.subscribers[ch] = struct{}{}
 	b.mu.Unlock()
 	return ch
 }
 
-func (b *Broker) Unsubscribe(ch chan NotifyEvent) {
+func (b *Broker) Unsubscribe(workspace string, ch chan NotifyEvent) {
 	b.mu.Lock()
-	delete(b.subscribers, ch)
+	if wb, ok := b.workspaces[workspace]; ok {
+		delete(wb.subscribers, ch)
+	}
 	b.mu.Unlock()
 	close(ch)
 }
 
-func (b *Broker) Publish(event NotifyEvent) {
+func (b *Broker) Publish(workspace string, event NotifyEvent) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.nextSeq++
-	b.pending = append(b.pending, event)
-	for ch := range b.subscribers {
+
+	wb := b.getOrCreate(workspace)
+	wb.nextSeq++
+	wb.pending = append(wb.pending, event)
+
+	if len(wb.pending) > 100 {
+		wb.pending = wb.pending[len(wb.pending)-100:]
+	}
+
+	for ch := range wb.subscribers {
 		select {
 		case ch <- event:
 		default:
@@ -45,27 +70,27 @@ func (b *Broker) Publish(event NotifyEvent) {
 	}
 }
 
-func (b *Broker) Poll(sinceSeq uint64) ([]NotifyEvent, uint64) {
+func (b *Broker) Poll(workspace string, sinceSeq uint64) ([]NotifyEvent, uint64) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if sinceSeq >= b.nextSeq {
-		return nil, b.nextSeq
+	wb, ok := b.workspaces[workspace]
+	if !ok {
+		return nil, 0
 	}
 
-	start := b.nextSeq - uint64(len(b.pending))
+	if sinceSeq >= wb.nextSeq {
+		return nil, wb.nextSeq
+	}
+
+	start := wb.nextSeq - uint64(len(wb.pending))
 	if sinceSeq < start {
 		sinceSeq = start
 	}
 
 	offset := sinceSeq - start
-	result := make([]NotifyEvent, len(b.pending[offset:]))
-	copy(result, b.pending[offset:])
+	result := make([]NotifyEvent, len(wb.pending[offset:]))
+	copy(result, wb.pending[offset:])
 
-	// keep only last 100
-	if len(b.pending) > 100 {
-		b.pending = b.pending[len(b.pending)-100:]
-	}
-
-	return result, b.nextSeq
+	return result, wb.nextSeq
 }

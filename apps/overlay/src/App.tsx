@@ -87,7 +87,7 @@ function LiveOverlay({ config }: { config: OverlayConfig }) {
     const poll = async () => {
       try {
         const response = await fetch(
-          `${config.apiBaseUrl}/v1/events/poll?since=${nextSeq}`,
+          `${config.apiBaseUrl}/v1/events/${encodeURIComponent(config.workspace)}/poll?since=${nextSeq}`,
         );
         if (!response.ok) return;
 

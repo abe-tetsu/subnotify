@@ -52,16 +52,14 @@ type setCredentialsResponse struct {
 }
 
 func NewRouter(application *app.App, opts ...any) http.Handler {
-	var store *notify.Store
 	var broker *notify.Broker
 	for _, opt := range opts {
 		switch v := opt.(type) {
-		case *notify.Store:
-			store = v
 		case *notify.Broker:
 			broker = v
 		}
 	}
+	_ = opts // allow unused Store to be passed without error
 
 	mux := http.NewServeMux()
 
@@ -208,9 +206,15 @@ func NewRouter(application *app.App, opts ...any) http.Handler {
 		renderSuccessHTML(w, channelTitle)
 	})
 
-	mux.HandleFunc("POST /v1/test-event", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("POST /v1/events/{workspace}", func(w http.ResponseWriter, r *http.Request) {
 		if broker == nil {
 			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "event broker not configured"})
+			return
+		}
+
+		workspace := r.PathValue("workspace")
+		if workspace == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "workspace is required"})
 			return
 		}
 
@@ -232,19 +236,21 @@ func NewRouter(application *app.App, opts ...any) http.Handler {
 			Title:     name,
 		})
 
-		broker.Publish(event)
+		broker.Publish(workspace, event)
 
-		if store != nil {
-			_ = store.AppendEvents([]notify.NotifyEvent{event})
-		}
-
-		log.Printf("test event sent: %s", name)
+		log.Printf("event sent to workspace %s: %s", workspace, name)
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "event": event})
 	})
 
-	mux.HandleFunc("GET /v1/events/poll", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /v1/events/{workspace}/poll", func(w http.ResponseWriter, r *http.Request) {
 		if broker == nil {
 			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "event broker not configured"})
+			return
+		}
+
+		workspace := r.PathValue("workspace")
+		if workspace == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "workspace is required"})
 			return
 		}
 
@@ -254,16 +260,22 @@ func NewRouter(application *app.App, opts ...any) http.Handler {
 			fmt.Sscanf(sinceStr, "%d", &since)
 		}
 
-		events, nextSeq := broker.Poll(since)
+		events, nextSeq := broker.Poll(workspace, since)
 		writeJSON(w, http.StatusOK, map[string]any{
 			"events":  events,
 			"nextSeq": nextSeq,
 		})
 	})
 
-	mux.HandleFunc("GET /v1/events/stream", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /v1/events/{workspace}/stream", func(w http.ResponseWriter, r *http.Request) {
 		if broker == nil {
 			http.Error(w, "event broker not configured", http.StatusServiceUnavailable)
+			return
+		}
+
+		workspace := r.PathValue("workspace")
+		if workspace == "" {
+			http.Error(w, "workspace is required", http.StatusBadRequest)
 			return
 		}
 
@@ -279,8 +291,8 @@ func NewRouter(application *app.App, opts ...any) http.Handler {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		flusher.Flush()
 
-		ch := broker.Subscribe()
-		defer broker.Unsubscribe(ch)
+		ch := broker.Subscribe(workspace)
+		defer broker.Unsubscribe(workspace, ch)
 
 		keepalive := time.NewTicker(15 * time.Second)
 		defer keepalive.Stop()

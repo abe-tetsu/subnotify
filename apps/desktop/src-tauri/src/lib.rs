@@ -542,7 +542,17 @@ fn send_test_event(
         }
     };
 
-    let url = format!("{base_url}/v1/test-event");
+    let workspace = settings
+        .workspace_label
+        .trim()
+        .replace(' ', "-")
+        .to_lowercase();
+    let workspace = if workspace.is_empty() {
+        "default-workspace".to_string()
+    } else {
+        workspace
+    };
+    let url = format!("{base_url}/v1/events/{workspace}");
     let body = serde_json::json!({
         "subscriberName": name,
     });

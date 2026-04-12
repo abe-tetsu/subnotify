@@ -21,7 +21,7 @@ import (
 
 func main() {
 	cfg := config.Load()
-	log.Printf("subnotify worker started (polling: %ds, notify API: %s)", cfg.PollingIntervalSec, cfg.NotifyAPIURL)
+	log.Printf("subnotify worker started (polling: %ds, workspace: %s, notify API: %s)", cfg.PollingIntervalSec, cfg.Workspace, cfg.NotifyAPIURL)
 
 	redirectURL := strings.TrimRight(cfg.PublicBaseURL, "/") + cfg.YouTubeAuthCallbackPath
 	oauth := youtube.NewOAuthService(cfg.YouTubeClientID, cfg.YouTubeClientSecret, redirectURL, cfg.DataDir)
@@ -80,7 +80,7 @@ func main() {
 				seen[sub.ChannelID] = true
 				log.Printf("worker: 新規登録者を検出: %s", sub.Title)
 
-				if err := sendNotifyEvent(httpClient, cfg.NotifyAPIURL, sub.Title); err != nil {
+				if err := sendNotifyEvent(httpClient, cfg.NotifyAPIURL, cfg.Workspace, sub.Title); err != nil {
 					log.Printf("worker: 通知送信エラー: %v", err)
 				} else {
 					log.Printf("worker: 通知送信完了: %s", sub.Title)
@@ -100,8 +100,8 @@ func main() {
 	}
 }
 
-func sendNotifyEvent(client *http.Client, apiURL string, subscriberName string) error {
-	url := strings.TrimRight(apiURL, "/") + "/v1/test-event"
+func sendNotifyEvent(client *http.Client, apiURL string, workspace string, subscriberName string) error {
+	url := strings.TrimRight(apiURL, "/") + "/v1/events/" + workspace
 
 	body, err := json.Marshal(map[string]string{
 		"subscriberName": subscriberName,
