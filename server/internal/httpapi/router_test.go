@@ -51,6 +51,10 @@ func (m *mockOAuth) HasToken() bool {
 	return m.hasTokenFlag
 }
 
+func (m *mockOAuth) FetchMySubscribers(_ context.Context) ([]youtube.Subscriber, error) {
+	return nil, nil
+}
+
 func (m *mockOAuth) FetchChannelInfo(_ context.Context) (youtube.ChannelInfo, error) {
 	if m.fetchErr != nil {
 		return youtube.ChannelInfo{}, m.fetchErr

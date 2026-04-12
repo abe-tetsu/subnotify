@@ -30,7 +30,12 @@ YouTube チャンネル登録通知を OBS オーバーレイとして表示す�
   - CSRF state 検証
   - サーバー再起動時のトークン自動復元
   - ワーカーでのトークン有効性確認
+  - デスクトップUIからのクレデンシャル入力・バックエンド自動反映
   - Go テスト（モック OAuthProvider によるフロー検証）
+  - 登録者ポーリング（`subscriptions.list?mySubscribers=true`、30秒間隔、設定可能）
+  - 差分検出（初回は記録のみ、2回目以降で新規登録者を検出）
+  - 既知登録者IDのファイル永続化（`.subnotify-data/seen_subscribers.json`）
+  - 通知イベントのファイル書き出し（`.subnotify-data/pending_events.json`）
 
 - **オーバーレイ**
   - React + Vite シェル
@@ -43,12 +48,7 @@ YouTube チャンネル登録通知を OBS オーバーレイとして表示す�
 
 ### 次にやること
 
-1. **登録者ポーリングをワーカーに実装する**
-   - `subscriptions.list?mySubscribers=true` で登録者を定期取得
-   - 前回との差分検出で新規登録者を特定
-   - 重複防止（既知の登録者IDを管理）
-
-2. **バックエンドからオーバーレイへの通知配信**
+1. **バックエンドからオーバーレイへの通知配信**
    - SSE（Server-Sent Events）または WebSocket でリアルタイム配信
    - オーバーレイが通知イベントを受信してカードを表示
 

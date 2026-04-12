@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -17,6 +18,7 @@ type Config struct {
 	YouTubeClientID         string
 	YouTubeClientSecret     string
 	DataDir                 string
+	PollingIntervalSec      int
 }
 
 func Load() Config {
@@ -37,7 +39,8 @@ func Load() Config {
 		),
 		YouTubeClientID:     envOrDefault("SUBNOTIFY_YOUTUBE_CLIENT_ID", ""),
 		YouTubeClientSecret: envOrDefault("SUBNOTIFY_YOUTUBE_CLIENT_SECRET", ""),
-		DataDir: envOrDefault("SUBNOTIFY_DATA_DIR", ".subnotify-data"),
+		DataDir:            envOrDefault("SUBNOTIFY_DATA_DIR", ".subnotify-data"),
+		PollingIntervalSec: envOrDefaultInt("SUBNOTIFY_POLLING_INTERVAL_SEC", 30),
 	}
 }
 
@@ -67,6 +70,18 @@ func loadEnvFile(path string) {
 	if err := scanner.Err(); err != nil {
 		fmt.Fprintf(os.Stderr, "[subnotify] .env.local の読み込みでエラー: %v\n", err)
 	}
+}
+
+func envOrDefaultInt(key string, fallback int) int {
+	value := os.Getenv(key)
+	if value == "" {
+		return fallback
+	}
+	n, err := strconv.Atoi(value)
+	if err != nil {
+		return fallback
+	}
+	return n
 }
 
 func envOrDefault(key, fallback string) string {

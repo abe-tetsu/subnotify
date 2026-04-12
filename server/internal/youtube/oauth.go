@@ -30,6 +30,7 @@ type OAuthProvider interface {
 	LoadToken() (*oauth2.Token, error)
 	HasToken() bool
 	FetchChannelInfo(ctx context.Context) (ChannelInfo, error)
+	FetchMySubscribers(ctx context.Context) ([]Subscriber, error)
 }
 
 type OAuthService struct {
