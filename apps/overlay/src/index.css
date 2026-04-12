@@ -1,0 +1,219 @@
+:root {
+  font-family: "Avenir Next", "Segoe UI", sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  color: #f8fbff;
+  background: transparent;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-text-size-adjust: 100%;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background: transparent;
+}
+
+.overlay-shell {
+  position: relative;
+  min-height: 100vh;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  padding: 32px;
+  background:
+    radial-gradient(circle at top left, rgba(255, 240, 210, 0.18), transparent 28%),
+    radial-gradient(circle at bottom right, rgba(129, 191, 255, 0.22), transparent 34%),
+    linear-gradient(145deg, rgba(11, 24, 43, 0.38) 0%, rgba(16, 35, 61, 0.2) 100%);
+}
+
+.ambient-panel {
+  position: absolute;
+  inset: 10% 12%;
+  border-radius: 42px;
+  background:
+    radial-gradient(circle at top, rgba(255, 255, 255, 0.12), transparent 42%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.02));
+  filter: blur(28px);
+}
+
+.overlay-card {
+  position: relative;
+  width: min(900px, 100%);
+  padding: 28px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 32px;
+  background:
+    linear-gradient(135deg, rgba(9, 25, 43, 0.92), rgba(15, 44, 77, 0.8)),
+    rgba(255, 255, 255, 0.06);
+  box-shadow: 0 28px 90px rgba(0, 0, 0, 0.32);
+  backdrop-filter: blur(22px);
+}
+
+.overlay-header,
+.overlay-footer,
+.subscriber-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.overlay-badge,
+.overlay-workspace,
+.footer-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  font-size: 0.85rem;
+}
+
+.overlay-workspace,
+.footer-chip {
+  color: rgba(248, 251, 255, 0.8);
+}
+
+.overlay-body {
+  margin-top: 26px;
+}
+
+.overlay-kicker {
+  margin: 0 0 10px;
+  font-size: 0.75rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #ffd29a;
+}
+
+.overlay-body h1 {
+  margin: 0;
+  font-size: clamp(2.4rem, 5vw, 4.6rem);
+  line-height: 1;
+  letter-spacing: -0.05em;
+}
+
+.overlay-copy {
+  margin: 16px 0 0;
+  max-width: 34rem;
+  color: rgba(248, 251, 255, 0.76);
+  font-size: 1.02rem;
+}
+
+.subscriber-row {
+  margin-top: 28px;
+  justify-content: flex-start;
+}
+
+.avatar-ring {
+  width: 92px;
+  height: 92px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: linear-gradient(135deg, rgba(255, 212, 132, 0.92), rgba(255, 255, 255, 0.88));
+  box-shadow: 0 12px 36px rgba(255, 199, 124, 0.32);
+}
+
+.avatar-core {
+  width: 74px;
+  height: 74px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: rgba(10, 27, 46, 0.92);
+  font-size: 2rem;
+  font-weight: 800;
+}
+
+.subscriber-copy {
+  display: grid;
+  gap: 6px;
+}
+
+.subscriber-label,
+.subscriber-name {
+  margin: 0;
+}
+
+.subscriber-label {
+  color: rgba(248, 251, 255, 0.64);
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 0.78rem;
+}
+
+.subscriber-name {
+  font-size: clamp(1.6rem, 4vw, 2.8rem);
+  font-weight: 700;
+}
+
+.overlay-footer {
+  margin-top: 28px;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+}
+
+.is-named .overlay-badge {
+  background: rgba(255, 208, 136, 0.18);
+  color: #ffe1b8;
+}
+
+.is-anonymous .overlay-card {
+  background:
+    linear-gradient(135deg, rgba(22, 16, 42, 0.92), rgba(39, 25, 74, 0.82)),
+    rgba(255, 255, 255, 0.06);
+}
+
+.is-anonymous .overlay-badge {
+  background: rgba(191, 159, 255, 0.2);
+  color: #ece0ff;
+}
+
+.is-anonymous .avatar-ring {
+  background: linear-gradient(135deg, rgba(215, 191, 255, 0.9), rgba(255, 255, 255, 0.84));
+  box-shadow: 0 12px 36px rgba(183, 138, 255, 0.26);
+}
+
+.is-live .overlay-card {
+  background:
+    linear-gradient(135deg, rgba(12, 46, 41, 0.92), rgba(11, 82, 79, 0.82)),
+    rgba(255, 255, 255, 0.06);
+}
+
+.is-live .overlay-badge {
+  background: rgba(121, 248, 193, 0.18);
+  color: #cffff0;
+}
+
+@media (max-width: 720px) {
+  .overlay-shell {
+    padding: 18px;
+  }
+
+  .overlay-card {
+    padding: 22px;
+  }
+
+  .overlay-header,
+  .subscriber-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}

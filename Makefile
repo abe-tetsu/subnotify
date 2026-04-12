@@ -2,18 +2,25 @@ SHELL := /bin/zsh
 
 ROOT_DIR := /Users/abetetsuya/app/subnotify
 DESKTOP_DIR := $(ROOT_DIR)/apps/desktop
+OVERLAY_DIR := $(ROOT_DIR)/apps/overlay
 SERVER_DIR := $(ROOT_DIR)/server
 API_URL := http://localhost:8080/health
 
 .DEFAULT_GOAL := desktop
 
-.PHONY: desktop desktop-install api worker dev stop build-desktop test-server help
+.PHONY: desktop desktop-install overlay overlay-install api worker dev stop build-desktop build-overlay test-server help
 
 desktop: desktop-install
 	cd $(DESKTOP_DIR) && exec npm run tauri dev
 
 desktop-install:
 	cd $(DESKTOP_DIR) && npm install
+
+overlay: overlay-install
+	cd $(OVERLAY_DIR) && exec npm run dev
+
+overlay-install:
+	cd $(OVERLAY_DIR) && npm install
 
 api:
 	cd $(SERVER_DIR) && go run ./cmd/api
@@ -58,6 +65,9 @@ stop:
 build-desktop: desktop-install
 	cd $(DESKTOP_DIR) && npm run build
 
+build-overlay: overlay-install
+	cd $(OVERLAY_DIR) && npm run build
+
 test-server:
 	cd $(SERVER_DIR) && go test ./...
 
@@ -65,9 +75,11 @@ help:
 	@printf "Available targets:\n"
 	@printf "  make           Start the desktop app via Tauri\n"
 	@printf "  make desktop   Start the desktop app via Tauri\n"
+	@printf "  make overlay   Start the public overlay preview app\n"
 	@printf "  make api       Start the Go API server\n"
 	@printf "  make worker    Start the Go worker scaffold\n"
 	@printf "  make dev       Start the Go API server if needed, then launch the desktop app\n"
 	@printf "  make stop      Stop lingering local subnotify dev processes\n"
 	@printf "  make build-desktop  Build the desktop frontend\n"
+	@printf "  make build-overlay  Build the overlay frontend\n"
 	@printf "  make test-server    Run Go tests under server\n"

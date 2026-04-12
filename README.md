@@ -13,8 +13,10 @@ v2 project workspace for the successor to `subscreen`.
   - settings
   - backend connectivity check
   - YouTube connection workspace status
+  - overlay preview URL helpers
   - architecture notes
   - roadmap
+- `apps/overlay` now has a first public preview shell.
 - Frontend build, Rust check, and Go tests are passing.
 
 ## Progress
@@ -46,6 +48,8 @@ v2 project workspace for the successor to `subscreen`.
   - added desktop auto-refresh so scaffold auth completion is picked up automatically while waiting for OAuth
   - hardened desktop auto-refresh so it keeps checking even if the initial `auth_started` response is missed right after opening the browser
   - added overlay preview URL helpers to the desktop app for OBS/live and named or anonymous preview URLs
+  - created the first `apps/overlay` React + Vite shell that switches between live, named preview, and anonymous preview modes based on the URL
+  - added `make overlay` and `make build-overlay`
   - expanded `make stop` so it also cleans up the compiled local Go API process left by `go run`
   - confirmed `npm run build`, `cargo check`, and `go test ./...` pass
 
@@ -56,7 +60,6 @@ v2 project workspace for the successor to `subscreen`.
   - shaping how the scaffold auth flow will be replaced by real token persistence
 
 - Not started yet:
-  - public overlay frontend
   - YouTube OAuth and subscriber polling
   - anonymous subscriber notification logic
 
@@ -94,8 +97,8 @@ v2 project workspace for the successor to `subscreen`.
   - define de-duplication and retry behavior
 
 - Overlay
-  - create `apps/overlay`
-  - design OBS-ready public overlay UI
+  - connect the overlay shell to real backend events
+  - refine the OBS-ready motion and timing
   - define how overlay receives live events from the backend
 
 - Shared
@@ -129,6 +132,7 @@ make worker
 cd /Users/abetetsuya/app/subnotify
 make help
 make
+make overlay
 make api
 make worker
 make dev
@@ -190,6 +194,22 @@ make dev
    - `接続済み`
    - `Stage` as `connected`
    - `Connected At` with a timestamp
+
+## Verify the overlay shell
+
+1. Start the overlay app:
+
+```bash
+cd /Users/abetetsuya/app/subnotify
+make overlay
+```
+
+2. Open these URLs in the browser:
+   - `http://localhost:5173/live/default-workspace`
+   - `http://localhost:5173/preview/default-workspace?mode=named&channel=demo-channel`
+   - `http://localhost:5173/preview/default-workspace?mode=anonymous`
+3. Confirm the screen changes between live, named preview, and anonymous preview looks.
+4. Confirm the desktop helper URLs follow the same path/query shape.
 
 ## Verify overlay preview URL helpers
 
