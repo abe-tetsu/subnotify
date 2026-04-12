@@ -178,8 +178,8 @@ fn get_desktop_overview() -> DesktopOverview {
             },
         ],
         next_milestones: vec![
-            "YouTube OAuth 仮 callback 後の反映を desktop で自動更新できるようにする".to_string(),
             "backend の YouTube 状態を永続化できるようにする".to_string(),
+            "desktop に overlay preview URL helper を追加する".to_string(),
             "公開 overlay の v2 デザインを分離して作る".to_string(),
         ],
         notes: vec![

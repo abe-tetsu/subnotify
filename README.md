@@ -43,6 +43,8 @@ v2 project workspace for the successor to `subscreen`.
   - added temporary backend state transitions so YouTube status can move from `not_connected` to `auth_started` to `connected`
   - added Go tests that verify the scaffold YouTube connection flow
   - switched the desktop OAuth launch action to Tauri opener so external browser pages can actually be opened from the app
+  - added desktop auto-refresh so scaffold auth completion is picked up automatically while waiting for OAuth
+  - hardened desktop auto-refresh so it keeps checking even if the initial `auth_started` response is missed right after opening the browser
   - expanded `make stop` so it also cleans up the compiled local Go API process left by `go run`
   - confirmed `npm run build`, `cargo check`, and `go test ./...` pass
 
@@ -71,7 +73,6 @@ v2 project workspace for the successor to `subscreen`.
   - add overlay preview URL helpers
   - add a clearer onboarding flow for first-time setup
   - surface backend auth/channel connection state in the desktop app
-  - auto-refresh YouTube connection state after the scaffold callback flow completes
 
 - Backend
   - decide storage strategy for channel state and notification history
@@ -184,7 +185,7 @@ make dev
 3. Click `YouTube 状態を確認`, then `OAuth 開始ページを開く`.
 4. In the opened browser page, click `認可完了をシミュレートする`.
 5. Confirm the browser shows the connected scaffold page.
-6. Return to the desktop app and click `YouTube 状態を確認` or `状態を更新`.
+6. Return to the desktop app and wait a few seconds, or focus the window again.
 7. Confirm the `YouTube Workspace` card changes to:
    - `接続済み`
    - `Stage` as `connected`

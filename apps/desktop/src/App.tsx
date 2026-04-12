@@ -96,8 +96,8 @@ const fallbackOverview: DesktopOverview = {
     },
   ],
   nextMilestones: [
-    "YouTube OAuth 仮 callback 後の反映を desktop で自動更新できるようにする",
     "backend の YouTube 状態を永続化できるようにする",
+    "desktop に overlay preview URL helper を追加する",
     "overlay の v2 デザインを公開 URL 前提で組み直す",
   ],
   notes: [
@@ -182,6 +182,13 @@ function youtubeStatusClassName(status: YouTubeWorkspaceStatus) {
   return "status-dot";
 }
 
+async function fetchYouTubeWorkspaceStatus(apiBaseUrl: string, youtubeChannelHint: string) {
+  return invoke<YouTubeWorkspaceStatus>("get_youtube_workspace_status", {
+    apiBaseUrl,
+    youtubeChannelHint,
+  });
+}
+
 function App() {
   const [activeTab, setActiveTab] = useState<TabId>("dashboard");
   const [overview, setOverview] = useState<DesktopOverview>(fallbackOverview);
@@ -199,6 +206,8 @@ function App() {
   const [isCheckingBackend, setIsCheckingBackend] = useState(false);
   const [isCheckingYouTube, setIsCheckingYouTube] = useState(false);
   const [isOpeningOAuthPage, setIsOpeningOAuthPage] = useState(false);
+  const [isAutoRefreshingYouTube, setIsAutoRefreshingYouTube] = useState(false);
+  const [isAwaitingOAuthCompletion, setIsAwaitingOAuthCompletion] = useState(false);
   const [settingsMessage, setSettingsMessage] = useState<string | null>(null);
   const [lastError, setLastError] = useState<string | null>(null);
 
@@ -261,10 +270,10 @@ function App() {
           const status = await invoke<BackendConnectionStatus>("check_backend_connection", {
             apiBaseUrl: nextSettings.apiBaseUrl,
           });
-          const youtubeStatus = await invoke<YouTubeWorkspaceStatus>("get_youtube_workspace_status", {
-            apiBaseUrl: nextSettings.apiBaseUrl,
-            youtubeChannelHint: nextSettings.youtubeChannelHint,
-          });
+          const youtubeStatus = await fetchYouTubeWorkspaceStatus(
+            nextSettings.apiBaseUrl,
+            nextSettings.youtubeChannelHint,
+          );
           if (isMounted) {
             setBackendConnectionStatus(status);
             setYouTubeWorkspaceStatus(youtubeStatus);
@@ -289,6 +298,71 @@ function App() {
     };
   }, []);
 
+  useEffect(() => {
+    const shouldAutoRefresh =
+      (youtubeWorkspaceStatus.stage === "auth_started" || isAwaitingOAuthCompletion) &&
+      !youtubeWorkspaceStatus.connected &&
+      savedSettings.apiBaseUrl.trim() !== "";
+
+    if (!shouldAutoRefresh) {
+      setIsAutoRefreshingYouTube(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    const refreshStatus = async () => {
+      setIsAutoRefreshingYouTube(true);
+      try {
+        const status = await fetchYouTubeWorkspaceStatus(
+          savedSettings.apiBaseUrl,
+          savedSettings.youtubeChannelHint,
+        );
+        if (cancelled) {
+          return;
+        }
+
+        setYouTubeWorkspaceStatus(status);
+        setLastError(null);
+        if (status.connected) {
+          setIsAwaitingOAuthCompletion(false);
+          setSettingsMessage("YouTube 接続状態を自動更新しました。");
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setLastError(`YouTube 状態の自動更新に失敗しました: ${String(error)}`);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsAutoRefreshingYouTube(false);
+        }
+      }
+    };
+
+    const intervalId = window.setInterval(() => {
+      void refreshStatus();
+    }, 3000);
+
+    const handleWindowFocus = () => {
+      void refreshStatus();
+    };
+
+    window.addEventListener("focus", handleWindowFocus);
+    void refreshStatus();
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", handleWindowFocus);
+    };
+  }, [
+    isAwaitingOAuthCompletion,
+    savedSettings.apiBaseUrl,
+    savedSettings.youtubeChannelHint,
+    youtubeWorkspaceStatus.connected,
+    youtubeWorkspaceStatus.stage,
+  ]);
+
   const handleRefresh = async () => {
     setIsRefreshing(true);
     try {
@@ -297,10 +371,10 @@ function App() {
       const nextConnectionStatus = await invoke<BackendConnectionStatus>("check_backend_connection", {
         apiBaseUrl: nextSettings.apiBaseUrl,
       });
-      const nextYouTubeStatus = await invoke<YouTubeWorkspaceStatus>("get_youtube_workspace_status", {
-        apiBaseUrl: nextSettings.apiBaseUrl,
-        youtubeChannelHint: nextSettings.youtubeChannelHint,
-      });
+      const nextYouTubeStatus = await fetchYouTubeWorkspaceStatus(
+        nextSettings.apiBaseUrl,
+        nextSettings.youtubeChannelHint,
+      );
 
       setOverview(nextOverview);
       setSettings(nextSettings);
@@ -356,10 +430,7 @@ function App() {
   ) => {
     setIsCheckingYouTube(true);
     try {
-      const status = await invoke<YouTubeWorkspaceStatus>("get_youtube_workspace_status", {
-        apiBaseUrl,
-        youtubeChannelHint,
-      });
+      const status = await fetchYouTubeWorkspaceStatus(apiBaseUrl, youtubeChannelHint);
       setYouTubeWorkspaceStatus(status);
       setLastError(null);
     } catch (error) {
@@ -369,16 +440,39 @@ function App() {
     }
   };
 
-  const handleOpenOAuthPage = async (url: string | null) => {
+  const handleOpenOAuthPage = async (
+    url: string | null,
+    apiBaseUrl: string,
+    youtubeChannelHint: string,
+  ) => {
     if (!url || url.trim() === "") {
       return;
     }
 
     setIsOpeningOAuthPage(true);
     try {
+      setIsAwaitingOAuthCompletion(true);
+      setYouTubeWorkspaceStatus((current) => ({
+        ...current,
+        ok: true,
+        stage: "auth_started",
+        lastEvent: "OAuth 開始ページを開きました。認可完了を待っています。",
+        message: "OAuth 開始ページを開きました。認可完了後は自動で状態を確認します。",
+      }));
       await openUrl(url);
+      const status = await fetchYouTubeWorkspaceStatus(apiBaseUrl, youtubeChannelHint);
+      setYouTubeWorkspaceStatus(status);
+      if (status.stage === "auth_started") {
+        setSettingsMessage(
+          "OAuth 開始ページを開きました。認可完了を待っている間は自動で状態を確認します。",
+        );
+      }
+      if (status.connected) {
+        setIsAwaitingOAuthCompletion(false);
+      }
       setLastError(null);
     } catch (error) {
+      setIsAwaitingOAuthCompletion(false);
       setLastError(`OAuth 開始ページを開けませんでした: ${String(error)}`);
     } finally {
       setIsOpeningOAuthPage(false);
@@ -542,6 +636,13 @@ function App() {
                 <span className="status-inline-text">{youtubeStatusLabel(youtubeWorkspaceStatus)}</span>
               </div>
               <p className="panel-text">{youtubeWorkspaceStatus.message}</p>
+              {youtubeWorkspaceStatus.stage === "auth_started" ? (
+                <p className="field-help">
+                  {isAutoRefreshingYouTube
+                    ? "認可完了を待ちながら状態を確認しています..."
+                    : "認可待ちの間は数秒おきとウィンドウ復帰時に自動更新します。"}
+                </p>
+              ) : null}
               <div className="stack-list compact-stack">
                 <div className="stack-item">
                   <strong>Channel</strong>
@@ -591,7 +692,13 @@ function App() {
                   <button
                     className={`secondary-button ${isOpeningOAuthPage ? "is-disabled" : ""}`}
                     disabled={isOpeningOAuthPage}
-                    onClick={() => void handleOpenOAuthPage(youtubeWorkspaceStatus.oauthStartUrl)}
+                    onClick={() =>
+                      void handleOpenOAuthPage(
+                        youtubeWorkspaceStatus.oauthStartUrl,
+                        savedSettings.apiBaseUrl,
+                        savedSettings.youtubeChannelHint,
+                      )
+                    }
                     type="button"
                   >
                     {isOpeningOAuthPage ? "起動中..." : "OAuth 開始ページを開く"}
@@ -735,7 +842,13 @@ function App() {
                   <button
                     className={`secondary-button ${isOpeningOAuthPage ? "is-disabled" : ""}`}
                     disabled={isOpeningOAuthPage}
-                    onClick={() => void handleOpenOAuthPage(youtubeWorkspaceStatus.oauthStartUrl)}
+                    onClick={() =>
+                      void handleOpenOAuthPage(
+                        youtubeWorkspaceStatus.oauthStartUrl,
+                        settings.apiBaseUrl,
+                        settings.youtubeChannelHint,
+                      )
+                    }
                     type="button"
                   >
                     {isOpeningOAuthPage ? "起動中..." : "OAuth 開始ページを開く"}
@@ -765,7 +878,7 @@ function App() {
                 {[
                   "desktop で API Base URL と Channel Hint を確認する",
                   "backend の YouTube 状態 endpoint から OAuth 開始 URL を取得して開く",
-                  "ブラウザ側で認可完了を進めたら desktop で状態を再確認する",
+                  "ブラウザ側で認可完了を進めたら desktop が数秒おきに自動更新する",
                 ].map((line, index) => (
                   <div className="timeline-item" key={line}>
                     <span className="timeline-index">{index + 1}</span>
