@@ -62,6 +62,14 @@ body {
     rgba(255, 255, 255, 0.06);
   box-shadow: 0 28px 90px rgba(0, 0, 0, 0.32);
   backdrop-filter: blur(22px);
+  opacity: 0;
+  transform: translate3d(-14px, 34px, 0) scale(0.965);
+  transition: opacity 300ms ease, transform 300ms ease;
+}
+
+.overlay-card.visible {
+  opacity: 1;
+  transform: translate3d(0, 0, 0) scale(1);
 }
 
 .overlay-header,
@@ -200,6 +208,34 @@ body {
 .is-live .overlay-badge {
   background: rgba(121, 248, 193, 0.18);
   color: #cffff0;
+}
+
+.is-live .avatar-ring {
+  background: linear-gradient(135deg, rgba(121, 248, 193, 0.9), rgba(255, 255, 255, 0.88));
+  box-shadow: 0 12px 36px rgba(121, 248, 193, 0.26);
+}
+
+.countdown-bar {
+  position: relative;
+  height: 5px;
+  margin-top: 20px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.countdown-fill {
+  position: absolute;
+  inset: 0;
+  transform-origin: left center;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(121, 248, 193, 0.8), rgba(255, 255, 255, 0.6));
+  animation: countdown-shrink linear forwards;
+}
+
+@keyframes countdown-shrink {
+  from { transform: scaleX(1); }
+  to { transform: scaleX(0); }
 }
 
 @media (max-width: 720px) {

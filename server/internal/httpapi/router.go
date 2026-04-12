@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/abe-tetsu/subnotify/server/internal/app"
+	"github.com/abe-tetsu/subnotify/server/internal/notify"
 	"github.com/abe-tetsu/subnotify/server/internal/youtube"
 )
 
@@ -50,7 +51,18 @@ type setCredentialsResponse struct {
 	Message string `json:"message"`
 }
 
-func NewRouter(application *app.App) http.Handler {
+func NewRouter(application *app.App, opts ...any) http.Handler {
+	var store *notify.Store
+	var broker *notify.Broker
+	for _, opt := range opts {
+		switch v := opt.(type) {
+		case *notify.Store:
+			store = v
+		case *notify.Broker:
+			broker = v
+		}
+	}
+
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
@@ -196,7 +208,102 @@ func NewRouter(application *app.App) http.Handler {
 		renderSuccessHTML(w, channelTitle)
 	})
 
-	return mux
+	mux.HandleFunc("POST /v1/test-event", func(w http.ResponseWriter, r *http.Request) {
+		if broker == nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "event broker not configured"})
+			return
+		}
+
+		var req struct {
+			SubscriberName string `json:"subscriberName"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request"})
+			return
+		}
+
+		name := req.SubscriberName
+		if name == "" {
+			name = "テストユーザー"
+		}
+
+		event := notify.NewSubscriberEvent(youtube.Subscriber{
+			ChannelID: "test-channel",
+			Title:     name,
+		})
+
+		broker.Publish(event)
+
+		if store != nil {
+			_ = store.AppendEvents([]notify.NotifyEvent{event})
+		}
+
+		log.Printf("test event sent: %s", name)
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "event": event})
+	})
+
+	mux.HandleFunc("GET /v1/events/poll", func(w http.ResponseWriter, r *http.Request) {
+		if broker == nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "event broker not configured"})
+			return
+		}
+
+		sinceStr := r.URL.Query().Get("since")
+		var since uint64
+		if sinceStr != "" {
+			fmt.Sscanf(sinceStr, "%d", &since)
+		}
+
+		events, nextSeq := broker.Poll(since)
+		writeJSON(w, http.StatusOK, map[string]any{
+			"events":  events,
+			"nextSeq": nextSeq,
+		})
+	})
+
+	mux.HandleFunc("GET /v1/events/stream", func(w http.ResponseWriter, r *http.Request) {
+		if broker == nil {
+			http.Error(w, "event broker not configured", http.StatusServiceUnavailable)
+			return
+		}
+
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			http.Error(w, "streaming not supported", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		flusher.Flush()
+
+		ch := broker.Subscribe()
+		defer broker.Unsubscribe(ch)
+
+		keepalive := time.NewTicker(15 * time.Second)
+		defer keepalive.Stop()
+
+		for {
+			select {
+			case <-r.Context().Done():
+				return
+			case <-keepalive.C:
+				fmt.Fprintf(w, ":keepalive\n\n")
+				flusher.Flush()
+			case event := <-ch:
+				data, err := json.Marshal(event)
+				if err != nil {
+					continue
+				}
+				fmt.Fprintf(w, "data: %s\n\n", data)
+				flusher.Flush()
+			}
+		}
+	})
+
+	return corsMiddleware(mux)
 }
 
 func guidanceForStage(snapshot app.YouTubeConnectionSnapshot) []string {
@@ -220,6 +327,21 @@ func guidanceForStage(snapshot app.YouTubeConnectionSnapshot) []string {
 			"登録者監視が有効になったらダッシュボードに反映されます",
 		}
 	}
+}
+
+func corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
 }
 
 func writeJSON(w http.ResponseWriter, statusCode int, payload any) {

@@ -13,6 +13,7 @@ import (
 	"github.com/abe-tetsu/subnotify/server/internal/app"
 	"github.com/abe-tetsu/subnotify/server/internal/config"
 	"github.com/abe-tetsu/subnotify/server/internal/httpapi"
+	"github.com/abe-tetsu/subnotify/server/internal/notify"
 	"github.com/abe-tetsu/subnotify/server/internal/youtube"
 )
 
@@ -29,10 +30,12 @@ func main() {
 	}
 
 	application := app.New(cfg, oauth)
+	eventStore := notify.NewStore(cfg.DataDir)
+	eventBroker := notify.NewBroker()
 
 	server := &http.Server{
 		Addr:              cfg.APIListenAddr,
-		Handler:           httpapi.NewRouter(application),
+		Handler:           httpapi.NewRouter(application, eventStore, eventBroker),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 

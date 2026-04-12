@@ -66,7 +66,7 @@ type OverlayPreviewLink = {
   url: string;
 };
 
-type TabId = "dashboard" | "settings" | "architecture" | "roadmap";
+type TabId = "dashboard" | "settings" | "test" | "roadmap";
 
 const fallbackOverview: DesktopOverview = {
   productName: "Subnotify",
@@ -270,6 +270,9 @@ function App() {
   const [isAwaitingOAuthCompletion, setIsAwaitingOAuthCompletion] = useState(false);
   const [settingsMessage, setSettingsMessage] = useState<string | null>(null);
   const [lastError, setLastError] = useState<string | null>(null);
+  const [isSendingTestEvent, setIsSendingTestEvent] = useState(false);
+  const [testEventMessage, setTestEventMessage] = useState<string | null>(null);
+  const [testSubscriberName, setTestSubscriberName] = useState("テストユーザー");
 
   const hasUnsavedChanges =
     settings.workspaceLabel !== savedSettings.workspaceLabel ||
@@ -434,6 +437,29 @@ function App() {
     youtubeWorkspaceStatus.connected,
     youtubeWorkspaceStatus.stage,
   ]);
+
+  const testOverlayUrl = (() => {
+    const base = savedSettings.overlayBaseUrl.trim().replace(/\/+$/, "") || "http://localhost:5173";
+    const workspace = savedSettings.workspaceLabel.trim().replace(/\s+/g, "-").toLowerCase() || "default-workspace";
+    const api = savedSettings.apiBaseUrl.trim().replace(/\/+$/, "");
+    return `${base}/live/${workspace}?api=${encodeURIComponent(api)}`;
+  })();
+
+  const handleSendTestEvent = async () => {
+    setIsSendingTestEvent(true);
+    setTestEventMessage(null);
+
+    try {
+      const result = await invoke<{ ok: boolean; message: string }>("send_test_event", {
+        subscriberName: testSubscriberName,
+      });
+      setTestEventMessage(result.message);
+    } catch (error) {
+      setTestEventMessage(`テスト送信に失敗しました: ${String(error)}`);
+    } finally {
+      setIsSendingTestEvent(false);
+    }
+  };
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
@@ -614,11 +640,11 @@ function App() {
           設定
         </button>
         <button
-          className={`tab-button ${activeTab === "architecture" ? "is-active" : ""}`}
-          onClick={() => setActiveTab("architecture")}
+          className={`tab-button ${activeTab === "test" ? "is-active" : ""}`}
+          onClick={() => setActiveTab("test")}
           type="button"
         >
-          構成
+          テスト
         </button>
         <button
           className={`tab-button ${activeTab === "roadmap" ? "is-active" : ""}`}
@@ -1056,30 +1082,64 @@ function App() {
           </section>
         ) : null}
 
-        {activeTab === "architecture" ? (
+        {activeTab === "test" ? (
           <section className="dashboard-grid single-column">
             <article className="panel-card accent-card">
-              <p className="panel-label">Architecture</p>
-              <h2>v2 の構成イメージ</h2>
-              <div className="stack-list">
-                {overview.architecture.map((line) => (
-                  <div className="stack-item" key={line}>
-                    <p className="panel-text">{line}</p>
-                  </div>
-                ))}
-              </div>
-            </article>
+              <p className="panel-label">テスト通知</p>
+              <h2>オーバーレイにテスト通知を送る</h2>
+              <p className="panel-text">
+                オーバーレイをブラウザで開いた状態でテスト通知を送ると、通知カードの表示を確認できます。
+              </p>
 
-            <article className="panel-card">
-              <p className="panel-label">Notes</p>
-              <h2>前提メモ</h2>
-              <div className="stack-list">
-                {overview.notes.map((line) => (
-                  <div className="stack-item" key={line}>
-                    <p className="panel-text">{line}</p>
+              <div className="settings-form">
+                <label className="field-group">
+                  <span className="field-label">オーバーレイ URL</span>
+                  <div className="url-box">
+                    <code>{testOverlayUrl}</code>
                   </div>
-                ))}
+                </label>
+
+                <div className="action-row">
+                  <button
+                    className="secondary-button"
+                    onClick={() => void openUrl(testOverlayUrl)}
+                    type="button"
+                  >
+                    ブラウザで開く
+                  </button>
+                </div>
+
+                <label className="field-group">
+                  <span className="field-label">テスト登録者名</span>
+                  <input
+                    className="field-input"
+                    onChange={(event) => setTestSubscriberName(event.currentTarget.value)}
+                    type="text"
+                    value={testSubscriberName}
+                  />
+                </label>
+
+                <div className="action-row">
+                  <button
+                    className={`primary-button ${isSendingTestEvent ? "is-disabled" : ""}`}
+                    disabled={isSendingTestEvent}
+                    onClick={() => void handleSendTestEvent()}
+                    type="button"
+                  >
+                    {isSendingTestEvent ? "送信中..." : "テスト通知を送信"}
+                  </button>
+                </div>
               </div>
+
+              {testEventMessage ? (
+                <p className={testEventMessage.includes("失敗") ? "error-text" : "success-text"}>
+                  {testEventMessage}
+                </p>
+              ) : null}
+
+              <p className="field-help">
+                先にオーバーレイをブラウザで開いてから、テスト通知を送信してください。
+              </p>
             </article>
           </section>
         ) : null}

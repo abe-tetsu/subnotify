@@ -28,10 +28,11 @@ api:
 worker:
 	cd $(SERVER_DIR) && go run ./cmd/worker
 
-dev: desktop-install
+dev: desktop-install overlay-install
 	@api_pid=""; \
+	overlay_pid=""; \
 	started_api="false"; \
-	trap 'if [ "$$started_api" = "true" ] && [ -n "$$api_pid" ]; then kill "$$api_pid" 2>/dev/null || true; fi' EXIT INT TERM; \
+	trap 'if [ -n "$$overlay_pid" ]; then kill "$$overlay_pid" 2>/dev/null || true; fi; if [ "$$started_api" = "true" ] && [ -n "$$api_pid" ]; then kill "$$api_pid" 2>/dev/null || true; fi' EXIT INT TERM; \
 	if curl -fsS $(API_URL) >/dev/null 2>&1; then \
 		printf "Using existing API server on http://localhost:8080\n"; \
 	else \
@@ -50,6 +51,10 @@ dev: desktop-install
 			exit 1; \
 		fi; \
 	fi; \
+	printf "Starting overlay on http://localhost:5173\n"; \
+	(cd $(OVERLAY_DIR) && exec npm run dev) & \
+	overlay_pid=$$!; \
+	sleep 2; \
 	printf "Starting desktop app\n"; \
 	cd $(DESKTOP_DIR) && exec npm run tauri dev
 
@@ -59,6 +64,7 @@ stop:
 	-@pkill -f 'npm run tauri dev' >/dev/null 2>&1 || true
 	-@pkill -f 'subnotify/apps/desktop.*vite' >/dev/null 2>&1 || true
 	-@pkill -f 'subnotify/apps/desktop' >/dev/null 2>&1 || true
+	-@pkill -f 'subnotify/apps/overlay.*vite' >/dev/null 2>&1 || true
 	-@pkill -f 'tauri-appsubnotify' >/dev/null 2>&1 || true
 	-@printf "Stopped local subnotify dev processes if any were running.\n"
 
@@ -78,7 +84,7 @@ help:
 	@printf "  make overlay   Start the public overlay preview app\n"
 	@printf "  make api       Start the Go API server\n"
 	@printf "  make worker    Start the Go worker scaffold\n"
-	@printf "  make dev       Start the Go API server if needed, then launch the desktop app\n"
+	@printf "  make dev       Start API + overlay + desktop app together\n"
 	@printf "  make stop      Stop lingering local subnotify dev processes\n"
 	@printf "  make build-desktop  Build the desktop frontend\n"
 	@printf "  make build-overlay  Build the overlay frontend\n"

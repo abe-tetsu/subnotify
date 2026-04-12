@@ -85,7 +85,7 @@ impl Default for DesktopSettings {
         Self {
             workspace_label: "Default Workspace".to_string(),
             api_base_url: "http://localhost:8080".to_string(),
-            overlay_base_url: "https://overlay.example.com/subnotify".to_string(),
+            overlay_base_url: "https://overlay.abetetsu.net".to_string(),
             youtube_channel_hint: "".to_string(),
             youtube_client_id: "".to_string(),
             youtube_client_secret: "".to_string(),
@@ -497,6 +497,77 @@ fn get_youtube_workspace_status(
     }
 }
 
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SendTestEventResult {
+    ok: bool,
+    message: String,
+}
+
+#[tauri::command]
+fn send_test_event(
+    state: State<'_, DesktopSettingsState>,
+    subscriber_name: String,
+) -> SendTestEventResult {
+    let settings = state.snapshot();
+    let base_url = settings
+        .api_base_url
+        .trim()
+        .trim_end_matches('/')
+        .to_string();
+
+    if base_url.is_empty() {
+        return SendTestEventResult {
+            ok: false,
+            message: "API Base URL が未設定です。".to_string(),
+        };
+    }
+
+    let name = if subscriber_name.trim().is_empty() {
+        "テストユーザー".to_string()
+    } else {
+        subscriber_name.trim().to_string()
+    };
+
+    let client = match Client::builder()
+        .timeout(Duration::from_secs(5))
+        .build()
+    {
+        Ok(client) => client,
+        Err(error) => {
+            return SendTestEventResult {
+                ok: false,
+                message: format!("HTTP クライアントの作成に失敗: {error}"),
+            };
+        }
+    };
+
+    let url = format!("{base_url}/v1/test-event");
+    let body = serde_json::json!({
+        "subscriberName": name,
+    });
+
+    match client.post(&url).json(&body).send() {
+        Ok(response) => {
+            if response.status().is_success() {
+                SendTestEventResult {
+                    ok: true,
+                    message: format!("「{name}」のテスト通知を送信しました。"),
+                }
+            } else {
+                SendTestEventResult {
+                    ok: false,
+                    message: format!("テスト送信がエラー (HTTP {})", response.status()),
+                }
+            }
+        }
+        Err(error) => SendTestEventResult {
+            ok: false,
+            message: format!("テスト送信に失敗: {error}"),
+        },
+    }
+}
+
 fn desktop_settings_file_path<R: Runtime>(app_handle: &AppHandle<R>) -> Result<PathBuf, String> {
     let mut dir = app_handle
         .path()
@@ -565,7 +636,8 @@ pub fn run() {
             get_desktop_settings,
             update_desktop_settings,
             check_backend_connection,
-            get_youtube_workspace_status
+            get_youtube_workspace_status,
+            send_test_event
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
