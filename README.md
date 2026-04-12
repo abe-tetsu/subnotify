@@ -1,243 +1,164 @@
 # subnotify
 
-v2 project workspace for the successor to `subscreen`.
+YouTube チャンネル登録通知を OBS オーバーレイとして表示するシステムです。`subscreen` の v2 として、デスクトップアプリ・バックエンドAPI・オーバーレイの3コンポーネント構成で開発しています。
 
-## Current status
+## アーキテクチャ
 
-- Project skeleton has been created.
-- The first visible desktop shell is implemented in `apps/desktop`.
-- A first Go backend scaffold is implemented in `server`.
-- `apps/desktop` uses `Tauri + React` and follows the visual direction of `subscreen`.
-- The desktop app currently shows:
-  - dashboard
-  - settings
-  - backend connectivity check
-  - YouTube connection workspace status
-  - overlay preview URL helpers
-  - architecture notes
-  - roadmap
-- `apps/overlay` now has a first public preview shell.
-- Frontend build, Rust check, and Go tests are passing.
+| コンポーネント | 技術 | 役割 |
+|---|---|---|
+| `apps/desktop` | Tauri + React | デスクトップ管理パネル（設定・接続管理） |
+| `apps/overlay` | React + Vite | OBS 用オーバーレイ（公開URL） |
+| `server` | Go | バックエンドAPI + ワーカー（認証・ポーリング・通知配信） |
 
-## Progress
+## 現在の状態
 
-- Done:
-  - created the base directory structure for `apps`, `server`, `shared`, and `docs`
-  - added a project-level `.gitignore` to avoid committing secrets and local artifacts
-  - created the first Tauri desktop app shell in `apps/desktop`
-  - added a minimal Rust command to return desktop overview data
-  - added initial v2 UI based on the `subscreen` style
-  - added desktop settings UI for API URL, overlay URL, workspace label, and channel hint
-  - added Tauri-side local persistence for desktop settings
-  - initialized the Go module under `server`
-  - added a minimal API server with `/health` and `/v1/meta`
-  - added a worker scaffold with heartbeat logging
-  - added a root `Makefile` so the desktop app can be started from the project root
-  - added a `make stop` target and improved local shutdown behavior for `make dev`
-  - adjusted `make stop` so it quietly handles lingering local dev processes
-  - added desktop-to-backend connectivity checks using `/health` and `/v1/meta`
-  - improved `make dev` so it can start the local API if needed and then launch the desktop app from a single terminal
-  - added a backend YouTube connection status scaffold endpoint at `/v1/youtube/connection`
-  - added a desktop YouTube workspace card and status check flow
-  - added a scaffold OAuth start page at `/v1/youtube/auth/start`
-  - added desktop links to open the scaffold OAuth start page from the saved backend state
-  - added an in-memory scaffold auth callback at `/v1/youtube/auth/callback`
-  - added temporary backend state transitions so YouTube status can move from `not_connected` to `auth_started` to `connected`
-  - added Go tests that verify the scaffold YouTube connection flow
-  - switched the desktop OAuth launch action to Tauri opener so external browser pages can actually be opened from the app
-  - added desktop auto-refresh so scaffold auth completion is picked up automatically while waiting for OAuth
-  - hardened desktop auto-refresh so it keeps checking even if the initial `auth_started` response is missed right after opening the browser
-  - added overlay preview URL helpers to the desktop app for OBS/live and named or anonymous preview URLs
-  - created the first `apps/overlay` React + Vite shell that switches between live, named preview, and anonymous preview modes based on the URL
-  - added `make overlay` and `make build-overlay`
-  - expanded `make stop` so it also cleans up the compiled local Go API process left by `go run`
-  - confirmed `npm run build`, `cargo check`, and `go test ./...` pass
+### 完了
 
-- In progress:
-  - defining the v2 desktop control panel shape
-  - refining the separation between desktop, overlay, and Go backend responsibilities
-  - preparing the desktop app to connect to the real YouTube OAuth backend flow
-  - shaping how the scaffold auth flow will be replaced by real token persistence
+- **デスクトップアプリ**
+  - Tauri + React のアプリシェル（ダッシュボード、設定、アーキテクチャ、ロードマップタブ）
+  - 設定の永続化（API URL、オーバーレイURL、ワークスペース、チャンネルヒント）
+  - バックエンド接続確認（`/health`, `/v1/meta`）
+  - YouTube 接続状態の表示と自動リフレッシュ
+  - オーバーレイプレビューURL ヘルパー
+  - OAuth 開始ページのブラウザ起動
 
-- Not started yet:
-  - YouTube OAuth and subscriber polling
-  - anonymous subscriber notification logic
+- **バックエンドAPI**
+  - Go API スケルトン（`/health`, `/v1/meta`, `/v1/youtube/connection`）
+  - YouTube OAuth スカフォールド（状態遷移: `not_connected` → `auth_started` → `connected`）
+  - OAuth 開始・コールバックページ（HTML）
+  - ワーカーのハートビートスカフォールド
+  - Go テスト
 
-## Planned structure
+- **オーバーレイ**
+  - React + Vite シェル
+  - 3モード表示（live / named preview / anonymous preview）
+  - URL ベースのモード切り替え
 
-- `apps/desktop`: Tauri + React desktop app
-- `apps/overlay`: public overlay frontend for OBS
-- `server`: Go backend API and workers
-- `shared`: shared API schemas and types
-- `docs`: notes and architecture docs
+- **開発環境**
+  - `make dev` で API + デスクトップ同時起動
+  - ビルド・テスト全パス（`npm run build`, `cargo check`, `go test`）
 
-## TODO
+### 次にやること
 
-- Desktop
-  - add a clearer onboarding flow for first-time setup
-  - surface backend auth/channel connection state in the desktop app
+1. **バックエンドに実際の YouTube OAuth を実装する**
+   - スカフォールドの認証ページを Google OAuth に置き換える
+   - トークンの永続化（ファイルまたはDB）
+   - リフレッシュトークンによる自動更新
 
-- Backend
-  - decide storage strategy for channel state and notification history
-  - add channel and auth endpoints
-  - add structured logging and request logging
-  - add real worker jobs for subscriber polling
-  - persist YouTube connection state instead of keeping it only in memory
-  - replace the scaffold auth start/callback pages with the real Google OAuth flow
+2. **登録者ポーリングをワーカーに実装する**
+   - `subscriptions.list?mySubscribers=true` で登録者を定期取得
+   - 前回との差分検出で新規登録者を特定
+   - 重複防止（既知の登録者IDを管理）
 
-- YouTube integration
-  - implement OAuth flow on the backend side
-  - fetch subscriber count periodically
-  - fetch visible subscribers where available
-  - compare count increase vs visible subscriber events
+3. **バックエンドからオーバーレイへの通知配信**
+   - SSE（Server-Sent Events）または WebSocket でリアルタイム配信
+   - オーバーレイが通知イベントを受信してカードを表示
 
-- Notification logic
-  - show named notifications when a visible subscriber is available
-  - show anonymous notifications when subscriber count increases but no visible subscriber can be identified
-  - define de-duplication and retry behavior
+### 未着手
 
-- Overlay
-  - connect the overlay shell to real backend events
-  - refine the OBS-ready motion and timing
-  - define how overlay receives live events from the backend
+- データベース永続化（チャンネル状態、通知履歴）
+- 匿名通知ロジック（登録者数増加 vs 公開登録者の差分）
+- 通知カードのアニメーション・効果音（subscreen から移植）
+- カスタマイズ設定（アクセントカラー、アバター画像）
+- 構造化ログ・リクエストログ
+- 共有型定義（OpenAPI、TypeScript/Go 型）
+- 本番デプロイ設定
 
-- Shared
-  - define API contracts
-  - add shared event/type definitions
+## ディレクトリ構成
 
-## Run the desktop app
-
-```bash
-cd /Users/abetetsuya/app/subnotify
-make
+```
+subnotify/
+├── apps/
+│   ├── desktop/          # Tauri + React デスクトップアプリ
+│   │   ├── src/          # React ソース
+│   │   └── src-tauri/    # Rust バックエンド
+│   └── overlay/          # OBS 用オーバーレイ
+│       └── src/          # React ソース
+├── server/               # Go バックエンド
+│   ├── cmd/
+│   │   ├── api/          # HTTP API サーバー
+│   │   └── worker/       # バックグラウンドワーカー
+│   └── internal/
+│       ├── app/          # コアロジック・状態管理
+│       ├── config/       # 設定読み込み
+│       ├── httpapi/      # HTTPルーター・ハンドラ
+│       ├── auth/         # 認証（未実装）
+│       ├── youtube/      # YouTube 連携（未実装）
+│       ├── notify/       # 通知ロジック（未実装）
+│       ├── store/        # データ永続化（未実装）
+│       └── overlay/      # オーバーレイ連携（未実装）
+├── shared/               # 共有型定義・OpenAPI スキーマ
+├── docs/                 # ドキュメント
+└── Makefile              # ビルド・実行コマンド
 ```
 
-## Run the backend API
+## 開発
+
+### 起動コマンド
 
 ```bash
-cd /Users/abetetsuya/app/subnotify
-make api
-```
-
-## Run the backend worker
-
-```bash
-cd /Users/abetetsuya/app/subnotify
-make worker
-```
-
-## Useful make targets
-
-```bash
-cd /Users/abetetsuya/app/subnotify
-make help
-make
-make overlay
-make api
-make worker
+# API + デスクトップアプリを同時起動（推奨）
 make dev
+
+# API のみ起動
+make api
+
+# ワーカーのみ起動
+make worker
+
+# オーバーレイのみ起動（ポート 5173）
+make overlay
+
+# プロセス停止
 make stop
+
+# ヘルプ
+make help
 ```
 
-`make dev` is the recommended local start command when you want both the API and the desktop app. It will reuse an existing API on `http://localhost:8080` if one is already running, otherwise it starts the API first and then opens the desktop app from the same terminal.
+`make dev` は `http://localhost:8080` で API が起動していなければ自動で起動し、その後デスクトップアプリを開きます。
 
-## Verify backend connectivity from the desktop app
-
-1. Start both the backend and the desktop app from one terminal:
+### ビルド
 
 ```bash
-cd /Users/abetetsuya/app/subnotify
-make dev
+# デスクトップアプリ
+make build-desktop
+
+# オーバーレイ
+make build-overlay
+
+# Go テスト
+make test-server
 ```
 
-2. Wait until the desktop window opens.
-3. Open the `設定` tab and confirm `API Base URL` is `http://localhost:8080`.
-4. Click `この URL で接続確認`.
-5. Confirm the message shows backend connection success.
-6. Open the `ダッシュボード` tab and confirm the backend health card shows the service and environment.
+## 動作確認
 
-## Verify YouTube workspace status from the desktop app
+### バックエンド接続確認
 
-1. Start the local API and the desktop app together:
+1. `make dev` で起動
+2. 設定タブで API Base URL が `http://localhost:8080` であることを確認
+3. 「この URL で接続確認」をクリック
+4. 接続成功のメッセージを確認
 
-```bash
-cd /Users/abetetsuya/app/subnotify
-make dev
-```
+### YouTube 接続フロー（スカフォールド）
 
-2. Open the `設定` tab.
-3. Confirm `API Base URL` is `http://localhost:8080`.
-4. Optionally set `YouTube Channel Hint` to something like `@your-channel`.
-5. Click `YouTube 状態を確認`.
-6. Confirm the message says the YouTube connection is not completed yet but the flow data was fetched.
-7. Open the `ダッシュボード` tab and confirm the `YouTube Workspace` card shows:
-   - `Stage` as `not_connected`
-   - `OAuth Start URL` as `http://localhost:8080/v1/youtube/auth/start?channel_hint=...` when a hint is set
-   - the channel hint you entered, if any
-8. Click `OAuth 開始ページを開く` and confirm a browser tab opens the scaffold auth page.
+1. `make dev` で起動
+2. 設定タブで YouTube Channel Hint を入力（任意）
+3. 「YouTube 状態を確認」をクリック
+4. 「OAuth 開始ページを開く」でブラウザが開く
+5. 「認可完了をシミュレートする」をクリック
+6. デスクトップアプリに戻ると自動で「接続済み」に変わる
 
-## Verify the scaffold auth callback flow
+### オーバーレイ確認
 
-1. Start both the backend and the desktop app:
+1. `make overlay` で起動
+2. ブラウザで以下を確認:
+   - `http://localhost:5173/live/default-workspace` — ライブモード
+   - `http://localhost:5173/preview/default-workspace?mode=named&channel=demo-channel` — 名前あり
+   - `http://localhost:5173/preview/default-workspace?mode=anonymous` — 名前なし
 
-```bash
-cd /Users/abetetsuya/app/subnotify
-make dev
-```
+## シークレット管理
 
-2. In the desktop app, open `設定` and set `YouTube Channel Hint` if needed.
-3. Click `YouTube 状態を確認`, then `OAuth 開始ページを開く`.
-4. In the opened browser page, click `認可完了をシミュレートする`.
-5. Confirm the browser shows the connected scaffold page.
-6. Return to the desktop app and wait a few seconds, or focus the window again.
-7. Confirm the `YouTube Workspace` card changes to:
-   - `接続済み`
-   - `Stage` as `connected`
-   - `Connected At` with a timestamp
-
-## Verify the overlay shell
-
-1. Start the overlay app:
-
-```bash
-cd /Users/abetetsuya/app/subnotify
-make overlay
-```
-
-2. Open these URLs in the browser:
-   - `http://localhost:5173/live/default-workspace`
-   - `http://localhost:5173/preview/default-workspace?mode=named&channel=demo-channel`
-   - `http://localhost:5173/preview/default-workspace?mode=anonymous`
-3. Confirm the screen changes between live, named preview, and anonymous preview looks.
-4. Confirm the desktop helper URLs follow the same path/query shape.
-
-## Verify overlay preview URL helpers
-
-1. Start the desktop app:
-
-```bash
-cd /Users/abetetsuya/app/subnotify
-make dev
-```
-
-2. Open `設定`.
-3. Set `Overlay Base URL` to something like `https://overlay.example.com/subnotify`.
-4. Set `Workspace Label` and optionally `YouTube Channel Hint`.
-5. Confirm the `Overlay Helper` card shows:
-   - `OBS Live URL`
-   - `名前あり Preview`
-   - `名前なし Preview`
-6. Save the settings and open `ダッシュボード`.
-7. Confirm the same helper URLs appear in `overlay URL helper`.
-
-## Secret handling
-
-- Do not commit real API keys, OAuth client secrets, access tokens, refresh tokens, or `.env` files.
-- Keep local-only values in ignored files such as `.env.local`.
-- If we need examples, use redacted templates like `.env.example`.
-
-## Notes
-
-- This repository is intended to be pushed to Git, so real secrets must never be committed.
-- For local development, use ignored files such as `.env.local`.
-- If we need sample configuration, add redacted template files only.
+- API キー、OAuth シークレット、トークンをコミットしない
+- ローカル専用の値は `.env.local` に記載（gitignore 済み）
+- サンプル設定が必要な場合は `.env.example` を使用
