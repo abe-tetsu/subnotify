@@ -205,6 +205,14 @@ body {
     rgba(255, 255, 255, 0.06);
 }
 
+.is-live {
+  background: transparent;
+}
+
+.is-live .ambient-panel {
+  display: none;
+}
+
 .is-live .overlay-badge {
   background: rgba(121, 248, 193, 0.18);
   color: #cffff0;
