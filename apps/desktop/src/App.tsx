@@ -58,6 +58,12 @@ type YouTubeWorkspaceStatus = {
   message: string;
 };
 
+type OverlayPreviewLink = {
+  label: string;
+  detail: string;
+  url: string;
+};
+
 type TabId = "dashboard" | "settings" | "architecture" | "roadmap";
 
 const fallbackOverview: DesktopOverview = {
@@ -97,7 +103,7 @@ const fallbackOverview: DesktopOverview = {
   ],
   nextMilestones: [
     "backend の YouTube 状態を永続化できるようにする",
-    "desktop に overlay preview URL helper を追加する",
+    "desktop の初回オンボーディングを整理する",
     "overlay の v2 デザインを公開 URL 前提で組み直す",
   ],
   notes: [
@@ -182,6 +188,56 @@ function youtubeStatusClassName(status: YouTubeWorkspaceStatus) {
   return "status-dot";
 }
 
+function sanitizeSlugPart(value: string, fallback: string) {
+  const normalized = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9-_]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+
+  return normalized === "" ? fallback : normalized;
+}
+
+function buildOverlayPreviewLinks(
+  overlayBaseUrl: string,
+  workspaceLabel: string,
+  youtubeChannelHint: string,
+): OverlayPreviewLink[] {
+  const trimmedBaseUrl = overlayBaseUrl.trim().replace(/\/+$/, "");
+  if (trimmedBaseUrl === "") {
+    return [];
+  }
+
+  const workspaceSlug = sanitizeSlugPart(workspaceLabel, "default-workspace");
+  const channelSlug = sanitizeSlugPart(
+    youtubeChannelHint.replace(/^@/, ""),
+    "default-channel",
+  );
+  const liveUrl = `${trimmedBaseUrl}/live/${workspaceSlug}`;
+  const namedPreviewUrl = `${trimmedBaseUrl}/preview/${workspaceSlug}?mode=named&channel=${encodeURIComponent(
+    channelSlug,
+  )}`;
+  const anonymousPreviewUrl = `${trimmedBaseUrl}/preview/${workspaceSlug}?mode=anonymous`;
+
+  return [
+    {
+      label: "OBS Live URL",
+      detail: "最終的に OBS で読む本番 URL の想定です。",
+      url: liveUrl,
+    },
+    {
+      label: "名前あり Preview",
+      detail: "表示名つき通知を確認するための preview URL です。",
+      url: namedPreviewUrl,
+    },
+    {
+      label: "名前なし Preview",
+      detail: "匿名通知の見え方を確認するための preview URL です。",
+      url: anonymousPreviewUrl,
+    },
+  ];
+}
+
 async function fetchYouTubeWorkspaceStatus(apiBaseUrl: string, youtubeChannelHint: string) {
   return invoke<YouTubeWorkspaceStatus>("get_youtube_workspace_status", {
     apiBaseUrl,
@@ -237,6 +293,16 @@ function App() {
       help: "複数環境を見分けるための表示名です。",
     },
   ];
+  const overlayPreviewLinks = buildOverlayPreviewLinks(
+    settings.overlayBaseUrl,
+    settings.workspaceLabel,
+    settings.youtubeChannelHint,
+  );
+  const savedOverlayPreviewLinks = buildOverlayPreviewLinks(
+    savedSettings.overlayBaseUrl,
+    savedSettings.workspaceLabel,
+    savedSettings.youtubeChannelHint,
+  );
 
   useEffect(() => {
     let isMounted = true;
@@ -479,6 +545,15 @@ function App() {
     }
   };
 
+  const handleOpenExternalUrl = async (url: string) => {
+    try {
+      await openUrl(url);
+      setLastError(null);
+    } catch (error) {
+      setLastError(`URL を開けませんでした: ${String(error)}`);
+    }
+  };
+
   return (
     <main className="app-shell">
       <section className="hero-card">
@@ -586,6 +661,36 @@ function App() {
                   </div>
                 ))}
               </div>
+            </article>
+
+            <article className="panel-card wide-card">
+              <p className="panel-label">Overlay Preview</p>
+              <h2>overlay URL helper</h2>
+              <p className="panel-text">
+                overlay 本体はまだ未実装ですが、desktop から想定 URL を先に確認できます。
+              </p>
+              {savedOverlayPreviewLinks.length > 0 ? (
+                <div className="stack-list">
+                  {savedOverlayPreviewLinks.map((item) => (
+                    <div className="stack-item" key={item.label}>
+                      <strong>{item.label}</strong>
+                      <p className="field-help">{item.detail}</p>
+                      <p className="panel-text mono-text">{item.url}</p>
+                      <div className="action-row">
+                        <button
+                          className="secondary-button"
+                          onClick={() => void handleOpenExternalUrl(item.url)}
+                          type="button"
+                        >
+                          URL を開く
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="field-help">Overlay Base URL を設定すると helper URL を表示します。</p>
+              )}
             </article>
 
             <article className="panel-card wide-card">
@@ -886,6 +991,24 @@ function App() {
                   </div>
                 ))}
               </div>
+            </article>
+
+            <article className="panel-card">
+              <p className="panel-label">Overlay Helper</p>
+              <h2>preview URL の確認</h2>
+              {overlayPreviewLinks.length > 0 ? (
+                <div className="stack-list">
+                  {overlayPreviewLinks.map((item) => (
+                    <div className="stack-item" key={item.label}>
+                      <strong>{item.label}</strong>
+                      <p className="field-help">{item.detail}</p>
+                      <p className="panel-text mono-text">{item.url}</p>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="field-help">Overlay Base URL を入力すると preview URL helper を表示します。</p>
+              )}
             </article>
           </section>
         ) : null}

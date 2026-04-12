@@ -45,6 +45,7 @@ v2 project workspace for the successor to `subscreen`.
   - switched the desktop OAuth launch action to Tauri opener so external browser pages can actually be opened from the app
   - added desktop auto-refresh so scaffold auth completion is picked up automatically while waiting for OAuth
   - hardened desktop auto-refresh so it keeps checking even if the initial `auth_started` response is missed right after opening the browser
+  - added overlay preview URL helpers to the desktop app for OBS/live and named or anonymous preview URLs
   - expanded `make stop` so it also cleans up the compiled local Go API process left by `go run`
   - confirmed `npm run build`, `cargo check`, and `go test ./...` pass
 
@@ -70,7 +71,6 @@ v2 project workspace for the successor to `subscreen`.
 ## TODO
 
 - Desktop
-  - add overlay preview URL helpers
   - add a clearer onboarding flow for first-time setup
   - surface backend auth/channel connection state in the desktop app
 
@@ -190,6 +190,25 @@ make dev
    - `接続済み`
    - `Stage` as `connected`
    - `Connected At` with a timestamp
+
+## Verify overlay preview URL helpers
+
+1. Start the desktop app:
+
+```bash
+cd /Users/abetetsuya/app/subnotify
+make dev
+```
+
+2. Open `設定`.
+3. Set `Overlay Base URL` to something like `https://overlay.example.com/subnotify`.
+4. Set `Workspace Label` and optionally `YouTube Channel Hint`.
+5. Confirm the `Overlay Helper` card shows:
+   - `OBS Live URL`
+   - `名前あり Preview`
+   - `名前なし Preview`
+6. Save the settings and open `ダッシュボード`.
+7. Confirm the same helper URLs appear in `overlay URL helper`.
 
 ## Secret handling
 
