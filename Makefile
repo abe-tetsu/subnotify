@@ -3,6 +3,7 @@ SHELL := /bin/zsh
 ROOT_DIR := /Users/abetetsuya/app/subnotify
 DESKTOP_DIR := $(ROOT_DIR)/apps/desktop
 SERVER_DIR := $(ROOT_DIR)/server
+API_URL := http://localhost:8080/health
 
 .DEFAULT_GOAL := desktop
 
@@ -22,9 +23,27 @@ worker:
 
 dev: desktop-install
 	@api_pid=""; \
-	trap 'if [ -n "$$api_pid" ]; then kill "$$api_pid" 2>/dev/null || true; fi' EXIT INT TERM; \
-	(cd $(SERVER_DIR) && exec go run ./cmd/api) & \
-	api_pid=$$!; \
+	started_api="false"; \
+	trap 'if [ "$$started_api" = "true" ] && [ -n "$$api_pid" ]; then kill "$$api_pid" 2>/dev/null || true; fi' EXIT INT TERM; \
+	if curl -fsS $(API_URL) >/dev/null 2>&1; then \
+		printf "Using existing API server on http://localhost:8080\n"; \
+	else \
+		printf "Starting local API server on http://localhost:8080\n"; \
+		(cd $(SERVER_DIR) && exec go run ./cmd/api) & \
+		api_pid=$$!; \
+		started_api="true"; \
+		for _ in {1..20}; do \
+			if curl -fsS $(API_URL) >/dev/null 2>&1; then \
+				break; \
+			fi; \
+			sleep 1; \
+		done; \
+		if ! curl -fsS $(API_URL) >/dev/null 2>&1; then \
+			printf "API server did not become ready at http://localhost:8080\n" >&2; \
+			exit 1; \
+		fi; \
+	fi; \
+	printf "Starting desktop app\n"; \
 	cd $(DESKTOP_DIR) && exec npm run tauri dev
 
 stop:
@@ -47,7 +66,7 @@ help:
 	@printf "  make desktop   Start the desktop app via Tauri\n"
 	@printf "  make api       Start the Go API server\n"
 	@printf "  make worker    Start the Go worker scaffold\n"
-	@printf "  make dev       Start the Go API server and desktop app together\n"
+	@printf "  make dev       Start the Go API server if needed, then launch the desktop app\n"
 	@printf "  make stop      Stop lingering local subnotify dev processes\n"
 	@printf "  make build-desktop  Build the desktop frontend\n"
 	@printf "  make test-server    Run Go tests under server\n"

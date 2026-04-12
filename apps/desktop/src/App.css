@@ -309,6 +309,10 @@ button {
   gap: 12px;
 }
 
+.compact-stack {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .stack-item {
   padding: 14px 16px;
   border-radius: 18px;
@@ -402,6 +406,10 @@ button {
   }
 
   .dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .compact-stack {
     grid-template-columns: 1fr;
   }
 }

@@ -11,9 +11,10 @@ v2 project workspace for the successor to `subscreen`.
 - The desktop app currently shows:
   - dashboard
   - settings
+  - backend connectivity check
   - architecture notes
   - roadmap
-- Frontend build and Rust check are passing.
+- Frontend build, Rust check, and Go tests are passing.
 
 ## Progress
 
@@ -23,20 +24,22 @@ v2 project workspace for the successor to `subscreen`.
   - created the first Tauri desktop app shell in `apps/desktop`
   - added a minimal Rust command to return desktop overview data
   - added initial v2 UI based on the `subscreen` style
-- added desktop settings UI for API URL, overlay URL, workspace label, and channel hint
-- added Tauri-side local persistence for desktop settings
-- initialized the Go module under `server`
-- added a minimal API server with `/health` and `/v1/meta`
-- added a worker scaffold with heartbeat logging
-- added a root `Makefile` so the desktop app can be started from the project root
-- added a `make stop` target and improved local shutdown behavior for `make dev`
-- adjusted `make stop` so it quietly handles lingering local dev processes
-- confirmed `npm run build` and `cargo check` pass for `apps/desktop`
+  - added desktop settings UI for API URL, overlay URL, workspace label, and channel hint
+  - added Tauri-side local persistence for desktop settings
+  - initialized the Go module under `server`
+  - added a minimal API server with `/health` and `/v1/meta`
+  - added a worker scaffold with heartbeat logging
+  - added a root `Makefile` so the desktop app can be started from the project root
+  - added a `make stop` target and improved local shutdown behavior for `make dev`
+  - adjusted `make stop` so it quietly handles lingering local dev processes
+  - added desktop-to-backend connectivity checks using `/health` and `/v1/meta`
+  - improved `make dev` so it can start the local API if needed and then launch the desktop app from a single terminal
+  - confirmed `npm run build`, `cargo check`, and `go test ./...` pass
 
 - In progress:
   - defining the v2 desktop control panel shape
   - refining the separation between desktop, overlay, and Go backend responsibilities
-  - preparing the desktop app to connect to the Go backend health endpoint
+  - preparing the desktop app to connect to the real YouTube/auth backend flow
 
 - Not started yet:
   - public overlay frontend
@@ -55,9 +58,9 @@ v2 project workspace for the successor to `subscreen`.
 
 - Desktop
   - add YouTube connection UI
-  - add backend connectivity check and server health display
   - add overlay preview URL helpers
   - add a clearer onboarding flow for first-time setup
+  - surface backend auth/channel connection state in the desktop app
 
 - Backend
   - decide storage strategy for channel state and notification history
@@ -95,15 +98,15 @@ make
 ## Run the backend API
 
 ```bash
-cd /Users/abetetsuya/app/subnotify/server
-go run ./cmd/api
+cd /Users/abetetsuya/app/subnotify
+make api
 ```
 
 ## Run the backend worker
 
 ```bash
-cd /Users/abetetsuya/app/subnotify/server
-go run ./cmd/worker
+cd /Users/abetetsuya/app/subnotify
+make worker
 ```
 
 ## Useful make targets
@@ -117,6 +120,23 @@ make worker
 make dev
 make stop
 ```
+
+`make dev` is the recommended local start command when you want both the API and the desktop app. It will reuse an existing API on `http://localhost:8080` if one is already running, otherwise it starts the API first and then opens the desktop app from the same terminal.
+
+## Verify backend connectivity from the desktop app
+
+1. Start both the backend and the desktop app from one terminal:
+
+```bash
+cd /Users/abetetsuya/app/subnotify
+make dev
+```
+
+2. Wait until the desktop window opens.
+3. Open the `設定` tab and confirm `API Base URL` is `http://localhost:8080`.
+4. Click `この URL で接続確認`.
+5. Confirm the message shows backend connection success.
+6. Open the `ダッシュボード` tab and confirm the backend health card shows the service and environment.
 
 ## Secret handling
 

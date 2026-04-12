@@ -1,8 +1,10 @@
+use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
 use std::{
     fs,
     path::PathBuf,
     sync::{Arc, Mutex},
+    time::{Duration, SystemTime},
 };
 use tauri::{AppHandle, Manager, Runtime, State};
 
@@ -36,6 +38,17 @@ struct DesktopOverview {
     alert_modes: Vec<AlertMode>,
     next_milestones: Vec<String>,
     notes: Vec<String>,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BackendConnectionStatus {
+    ok: bool,
+    checked_at: String,
+    status_code: Option<u16>,
+    service: Option<String>,
+    environment: Option<String>,
+    message: String,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -87,6 +100,18 @@ impl DesktopSettingsState {
     }
 }
 
+#[derive(Deserialize)]
+struct HealthResponse {
+    ok: bool,
+    service: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct MetaResponse {
+    environment: String,
+}
+
 #[tauri::command]
 fn get_desktop_overview() -> DesktopOverview {
     DesktopOverview {
@@ -100,8 +125,8 @@ fn get_desktop_overview() -> DesktopOverview {
         },
         server_status: ServiceStatus {
             label: "Server".to_string(),
-            state: "planning".to_string(),
-            detail: "Go の API / worker / YouTube polling はこれから実装します。".to_string(),
+            state: "ready".to_string(),
+            detail: "Go の API / worker 雛形と health endpoint までは実装済みです。".to_string(),
         },
         overlay_status: ServiceStatus {
             label: "Overlay".to_string(),
@@ -125,7 +150,7 @@ fn get_desktop_overview() -> DesktopOverview {
         ],
         next_milestones: vec![
             "desktop に YouTube 接続カードを追加する".to_string(),
-            "Go サーバーの API と worker の雛形を実装する".to_string(),
+            "backend health check と YouTube 接続フローをつなぐ".to_string(),
             "公開 overlay の v2 デザインを分離して作る".to_string(),
         ],
         notes: vec![
@@ -150,6 +175,118 @@ fn update_desktop_settings(
     let updated = state.update(settings);
     persist_desktop_settings(&app_handle, &updated)?;
     Ok(updated)
+}
+
+#[tauri::command]
+fn check_backend_connection(api_base_url: String) -> BackendConnectionStatus {
+    let base_url = api_base_url.trim().trim_end_matches('/').to_string();
+    if base_url.is_empty() {
+        return BackendConnectionStatus {
+            ok: false,
+            checked_at: now_iso8601(),
+            status_code: None,
+            service: None,
+            environment: None,
+            message: "API Base URL が未設定です。".to_string(),
+        };
+    }
+
+    let client = match Client::builder().timeout(Duration::from_secs(3)).build() {
+        Ok(client) => client,
+        Err(error) => {
+            return BackendConnectionStatus {
+                ok: false,
+                checked_at: now_iso8601(),
+                status_code: None,
+                service: None,
+                environment: None,
+                message: format!("HTTP クライアントの初期化に失敗しました: {error}"),
+            };
+        }
+    };
+
+    let health_url = format!("{base_url}/health");
+    let meta_url = format!("{base_url}/v1/meta");
+
+    let health_response = match client.get(&health_url).send() {
+        Ok(response) => response,
+        Err(error) => {
+            return BackendConnectionStatus {
+                ok: false,
+                checked_at: now_iso8601(),
+                status_code: None,
+                service: None,
+                environment: None,
+                message: format!("backend への接続に失敗しました: {error}"),
+            };
+        }
+    };
+
+    let status_code = health_response.status().as_u16();
+    if !health_response.status().is_success() {
+        return BackendConnectionStatus {
+            ok: false,
+            checked_at: now_iso8601(),
+            status_code: Some(status_code),
+            service: None,
+            environment: None,
+            message: format!("health endpoint が失敗しました: HTTP {status_code}"),
+        };
+    }
+
+    let health_payload = match health_response.json::<HealthResponse>() {
+        Ok(payload) => payload,
+        Err(error) => {
+            return BackendConnectionStatus {
+                ok: false,
+                checked_at: now_iso8601(),
+                status_code: Some(status_code),
+                service: None,
+                environment: None,
+                message: format!("health response の解析に失敗しました: {error}"),
+            };
+        }
+    };
+
+    match client.get(&meta_url).send() {
+        Ok(response) if response.status().is_success() => match response.json::<MetaResponse>() {
+            Ok(meta_payload) => BackendConnectionStatus {
+                ok: health_payload.ok,
+                checked_at: now_iso8601(),
+                status_code: Some(status_code),
+                service: Some(health_payload.service),
+                environment: Some(meta_payload.environment),
+                message: "backend に接続できました。".to_string(),
+            },
+            Err(error) => BackendConnectionStatus {
+                ok: true,
+                checked_at: now_iso8601(),
+                status_code: Some(status_code),
+                service: Some(health_payload.service),
+                environment: None,
+                message: format!("health は成功しましたが meta 解析に失敗しました: {error}"),
+            },
+        },
+        Ok(response) => BackendConnectionStatus {
+            ok: true,
+            checked_at: now_iso8601(),
+            status_code: Some(status_code),
+            service: Some(health_payload.service),
+            environment: None,
+            message: format!(
+                "health は成功しましたが meta endpoint は HTTP {} でした。",
+                response.status().as_u16()
+            ),
+        },
+        Err(error) => BackendConnectionStatus {
+            ok: true,
+            checked_at: now_iso8601(),
+            status_code: Some(status_code),
+            service: Some(health_payload.service),
+            environment: None,
+            message: format!("health は成功しましたが meta 取得に失敗しました: {error}"),
+        },
+    }
 }
 
 fn desktop_settings_file_path<R: Runtime>(app_handle: &AppHandle<R>) -> Result<PathBuf, String> {
@@ -192,6 +329,11 @@ fn load_persisted_desktop_settings<R: Runtime>(
     Ok(Some(settings))
 }
 
+fn now_iso8601() -> String {
+    let datetime: chrono::DateTime<chrono::Utc> = SystemTime::now().into();
+    datetime.to_rfc3339()
+}
+
 pub fn run() {
     let desktop_settings_state = DesktopSettingsState::new();
     let desktop_settings_state_for_setup = desktop_settings_state.clone();
@@ -207,7 +349,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_desktop_overview,
             get_desktop_settings,
-            update_desktop_settings
+            update_desktop_settings,
+            check_backend_connection
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

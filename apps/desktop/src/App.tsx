@@ -34,6 +34,15 @@ type DesktopSettings = {
   youtubeChannelHint: string;
 };
 
+type BackendConnectionStatus = {
+  ok: boolean;
+  checkedAt: string;
+  statusCode: number | null;
+  service: string | null;
+  environment: string | null;
+  message: string;
+};
+
 type TabId = "dashboard" | "settings" | "architecture" | "roadmap";
 
 const fallbackOverview: DesktopOverview = {
@@ -73,7 +82,7 @@ const fallbackOverview: DesktopOverview = {
   ],
   nextMilestones: [
     "desktop に YouTube 接続状態カードを実装する",
-    "Go サーバーの API と worker の雛形を追加する",
+    "backend health check と YouTube 接続フローをつなぐ",
     "overlay の v2 デザインを公開 URL 前提で組み直す",
   ],
   notes: [
@@ -88,6 +97,15 @@ const fallbackSettings: DesktopSettings = {
   apiBaseUrl: "http://localhost:8080",
   overlayBaseUrl: "https://overlay.example.com/subnotify",
   youtubeChannelHint: "",
+};
+
+const fallbackBackendConnectionStatus: BackendConnectionStatus = {
+  ok: false,
+  checkedAt: "",
+  statusCode: null,
+  service: null,
+  environment: null,
+  message: "まだ接続確認していません。",
 };
 
 function statusClassName(state: ServiceStatus["state"]) {
@@ -110,9 +128,13 @@ function App() {
   const [overview, setOverview] = useState<DesktopOverview>(fallbackOverview);
   const [settings, setSettings] = useState<DesktopSettings>(fallbackSettings);
   const [savedSettings, setSavedSettings] = useState<DesktopSettings>(fallbackSettings);
+  const [backendConnectionStatus, setBackendConnectionStatus] = useState<BackendConnectionStatus>(
+    fallbackBackendConnectionStatus,
+  );
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isLoadingSettings, setIsLoadingSettings] = useState(true);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
+  const [isCheckingBackend, setIsCheckingBackend] = useState(false);
   const [settingsMessage, setSettingsMessage] = useState<string | null>(null);
   const [lastError, setLastError] = useState<string | null>(null);
 
@@ -163,10 +185,21 @@ function App() {
     const loadSettings = async () => {
       try {
         const nextSettings = await invoke<DesktopSettings>("get_desktop_settings");
-        if (isMounted) {
-          setSettings(nextSettings);
-          setSavedSettings(nextSettings);
-          setSettingsMessage("保存済みの desktop 設定を読み込みました。");
+        if (!isMounted) {
+          return;
+        }
+
+        setSettings(nextSettings);
+        setSavedSettings(nextSettings);
+        setSettingsMessage("保存済みの desktop 設定を読み込みました。");
+
+        if (nextSettings.apiBaseUrl.trim() !== "") {
+          const status = await invoke<BackendConnectionStatus>("check_backend_connection", {
+            apiBaseUrl: nextSettings.apiBaseUrl,
+          });
+          if (isMounted) {
+            setBackendConnectionStatus(status);
+          }
         }
       } catch (error) {
         if (isMounted) {
@@ -192,9 +225,14 @@ function App() {
     try {
       const nextOverview = await invoke<DesktopOverview>("get_desktop_overview");
       const nextSettings = await invoke<DesktopSettings>("get_desktop_settings");
+      const nextConnectionStatus = await invoke<BackendConnectionStatus>("check_backend_connection", {
+        apiBaseUrl: nextSettings.apiBaseUrl,
+      });
+
       setOverview(nextOverview);
       setSettings(nextSettings);
       setSavedSettings(nextSettings);
+      setBackendConnectionStatus(nextConnectionStatus);
       setLastError(null);
       setSettingsMessage("desktop 設定と状態を再取得しました。");
     } catch (error) {
@@ -220,6 +258,21 @@ function App() {
       setSettingsMessage(`desktop 設定の保存に失敗しました: ${String(error)}`);
     } finally {
       setIsSavingSettings(false);
+    }
+  };
+
+  const handleCheckBackendConnection = async (apiBaseUrl: string) => {
+    setIsCheckingBackend(true);
+    try {
+      const status = await invoke<BackendConnectionStatus>("check_backend_connection", {
+        apiBaseUrl,
+      });
+      setBackendConnectionStatus(status);
+      setLastError(null);
+    } catch (error) {
+      setLastError(`backend 接続確認に失敗しました: ${String(error)}`);
+    } finally {
+      setIsCheckingBackend(false);
     }
   };
 
@@ -329,6 +382,46 @@ function App() {
                     <p className="field-help">{item.help}</p>
                   </div>
                 ))}
+              </div>
+            </article>
+
+            <article className="panel-card wide-card">
+              <p className="panel-label">Backend Health</p>
+              <h2>Go backend の接続状態</h2>
+              <div className="status-row">
+                <span className={backendConnectionStatus.ok ? "status-dot is-ready" : "status-dot"} />
+                <span className="status-inline-text">
+                  {backendConnectionStatus.ok ? "接続成功" : "未接続 / 失敗"}
+                </span>
+              </div>
+              <p className="panel-text">{backendConnectionStatus.message}</p>
+              <div className="stack-list compact-stack">
+                <div className="stack-item">
+                  <strong>API Base URL</strong>
+                  <p className="panel-text mono-text">{savedSettings.apiBaseUrl || "未設定"}</p>
+                </div>
+                <div className="stack-item">
+                  <strong>Service</strong>
+                  <p className="panel-text">{backendConnectionStatus.service || "-"}</p>
+                </div>
+                <div className="stack-item">
+                  <strong>Environment</strong>
+                  <p className="panel-text">{backendConnectionStatus.environment || "-"}</p>
+                </div>
+                <div className="stack-item">
+                  <strong>Last Checked</strong>
+                  <p className="panel-text">{backendConnectionStatus.checkedAt || "-"}</p>
+                </div>
+              </div>
+              <div className="action-row">
+                <button
+                  className={`secondary-button ${isCheckingBackend ? "is-disabled" : ""}`}
+                  disabled={isCheckingBackend}
+                  onClick={() => void handleCheckBackendConnection(savedSettings.apiBaseUrl)}
+                  type="button"
+                >
+                  {isCheckingBackend ? "確認中..." : "接続確認"}
+                </button>
               </div>
             </article>
 
@@ -442,6 +535,14 @@ function App() {
                 >
                   {isSavingSettings ? "保存中..." : "設定を保存"}
                 </button>
+                <button
+                  className={`secondary-button ${isCheckingBackend ? "is-disabled" : ""}`}
+                  disabled={isCheckingBackend}
+                  onClick={() => void handleCheckBackendConnection(settings.apiBaseUrl)}
+                  type="button"
+                >
+                  {isCheckingBackend ? "確認中..." : "この URL で接続確認"}
+                </button>
               </div>
 
               <p className={settingsMessage?.includes("失敗") ? "error-text" : "field-help"}>
@@ -450,6 +551,9 @@ function App() {
                   : hasUnsavedChanges
                     ? "未保存の変更があります。必要なら保存してください。"
                     : settingsMessage}
+              </p>
+              <p className={backendConnectionStatus.ok ? "field-help" : "error-text"}>
+                {backendConnectionStatus.message}
               </p>
             </article>
           </section>
