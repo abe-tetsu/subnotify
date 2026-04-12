@@ -4,30 +4,6 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 
 import "./App.css";
 
-type ServiceStatus = {
-  label: string;
-  state: "ready" | "planning" | "pending";
-  detail: string;
-};
-
-type AlertMode = {
-  title: string;
-  behavior: string;
-};
-
-type DesktopOverview = {
-  productName: string;
-  stageLabel: string;
-  summary: string;
-  desktopStatus: ServiceStatus;
-  serverStatus: ServiceStatus;
-  overlayStatus: ServiceStatus;
-  architecture: string[];
-  alertModes: AlertMode[];
-  nextMilestones: string[];
-  notes: string[];
-};
-
 type DesktopSettings = {
   workspaceLabel: string;
   apiBaseUrl: string;
@@ -62,65 +38,12 @@ type YouTubeWorkspaceStatus = {
   message: string;
 };
 
-type OverlayPreviewLink = {
-  label: string;
-  detail: string;
-  url: string;
-};
-
-type TabId = "dashboard" | "settings" | "test" | "roadmap";
-
-const fallbackOverview: DesktopOverview = {
-  productName: "Subnotify",
-  stageLabel: "Desktop Shell",
-  summary:
-    "Subnotify v2 の最初の Tauri 画面です。ここからクラウドサーバー版の通知基盤へ広げていきます。",
-  desktopStatus: {
-    label: "Desktop",
-    state: "ready",
-    detail: "Tauri + React の土台を配置済みです。",
-  },
-  serverStatus: {
-    label: "Server",
-    state: "ready",
-    detail: "Go API / worker 雛形に加えて YouTube auth の仮状態遷移まで実装済みです。",
-  },
-  overlayStatus: {
-    label: "Overlay",
-    state: "planning",
-    detail: "OBS から読む公開 URL ベースの overlay を別アプリで用意します。",
-  },
-  architecture: [
-    "Desktop は Tauri + React で管理画面を担当する",
-    "Backend は Go で YouTube 連携と通知判定を担当する",
-    "Overlay は公開 URL で配信ソフトから読み込む",
-  ],
-  alertModes: [
-    {
-      title: "名前あり通知",
-      behavior: "公開登録者が取得できた場合は登録者名を表示する",
-    },
-    {
-      title: "名前なし通知",
-      behavior: "登録者数だけ増えて公開登録者が取れない場合は匿名通知に切り替える",
-    },
-  ],
-  nextMilestones: [
-    "backend の YouTube 状態を永続化できるようにする",
-    "desktop の初回オンボーディングを整理する",
-    "overlay の v2 デザインを公開 URL 前提で組み直す",
-  ],
-  notes: [
-    "v1 の local overlay server は使わない",
-    "秘密情報は Git に入れず .env.local や環境変数で管理する",
-    "今回の画面は v2 の作業ベースとして使う",
-  ],
-};
+type TabId = "dashboard" | "test" | "settings";
 
 const fallbackSettings: DesktopSettings = {
   workspaceLabel: "Default Workspace",
   apiBaseUrl: "http://localhost:8080",
-  overlayBaseUrl: "https://overlay.example.com/subnotify",
+  overlayBaseUrl: "https://overlay.abetetsu.net",
   youtubeChannelHint: "",
   youtubeClientId: "",
   youtubeClientSecret: "",
@@ -128,149 +51,42 @@ const fallbackSettings: DesktopSettings = {
   anonymousMessageTemplate: "チャンネル登録ありがとう！",
 };
 
-const fallbackBackendConnectionStatus: BackendConnectionStatus = {
-  ok: false,
-  checkedAt: "",
-  statusCode: null,
-  service: null,
-  environment: null,
-  message: "まだ接続確認していません。",
-};
-
-const fallbackYouTubeWorkspaceStatus: YouTubeWorkspaceStatus = {
+const fallbackYouTubeStatus: YouTubeWorkspaceStatus = {
   ok: false,
   checkedAt: "",
   connected: false,
-  stage: "idle",
+  stage: "not_connected",
   channelHint: "",
-  channelLabel: "未確認",
+  channelLabel: "未接続",
   oauthStartUrl: null,
   connectedAt: null,
-  lastEvent: "まだ YouTube 状態を確認していません。",
-  guidance: [
-    "API Base URL を設定して backend 接続確認を先に済ませる",
-    "チャンネルのヒントを入れて YouTube 状態を確認する",
-  ],
-  message: "まだ YouTube 状態を確認していません。",
+  lastEvent: "",
+  guidance: [],
+  message: "",
 };
 
-function statusClassName(state: ServiceStatus["state"]) {
-  switch (state) {
-    case "ready":
-      return "status-dot is-ready";
-    case "planning":
-      return "status-dot is-planning";
-    default:
-      return "status-dot";
-  }
-}
-
-function isConfigured(value: string) {
-  return value.trim().length > 0;
-}
-
-function canOpenOAuthStartUrl(status: YouTubeWorkspaceStatus) {
-  return Boolean(status.oauthStartUrl && status.oauthStartUrl.trim() !== "");
-}
-
-function youtubeStatusLabel(status: YouTubeWorkspaceStatus) {
-  if (status.connected) {
-    return "接続済み";
-  }
-  if (status.stage === "auth_started") {
-    return "認可待ち";
-  }
-  if (status.ok) {
-    return "接続前";
-  }
-  return "未確認 / 失敗";
-}
-
-function youtubeStatusClassName(status: YouTubeWorkspaceStatus) {
-  if (status.connected) {
-    return "status-dot is-ready";
-  }
-  if (status.stage === "auth_started" || status.ok) {
-    return "status-dot is-planning";
-  }
-  return "status-dot";
-}
-
-function sanitizeSlugPart(value: string, fallback: string) {
-  const normalized = value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9-_]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-
-  return normalized === "" ? fallback : normalized;
-}
-
-function buildOverlayPreviewLinks(
-  overlayBaseUrl: string,
-  workspaceLabel: string,
-  youtubeChannelHint: string,
-): OverlayPreviewLink[] {
-  const trimmedBaseUrl = overlayBaseUrl.trim().replace(/\/+$/, "");
-  if (trimmedBaseUrl === "") {
-    return [];
-  }
-
-  const workspaceSlug = sanitizeSlugPart(workspaceLabel, "default-workspace");
-  const channelSlug = sanitizeSlugPart(
-    youtubeChannelHint.replace(/^@/, ""),
-    "default-channel",
-  );
-  const liveUrl = `${trimmedBaseUrl}/live/${workspaceSlug}`;
-  const namedPreviewUrl = `${trimmedBaseUrl}/preview/${workspaceSlug}?mode=named&channel=${encodeURIComponent(
-    channelSlug,
-  )}`;
-  const anonymousPreviewUrl = `${trimmedBaseUrl}/preview/${workspaceSlug}?mode=anonymous`;
-
-  return [
-    {
-      label: "OBS Live URL",
-      detail: "最終的に OBS で読む本番 URL の想定です。",
-      url: liveUrl,
-    },
-    {
-      label: "名前あり Preview",
-      detail: "表示名つき通知を確認するための preview URL です。",
-      url: namedPreviewUrl,
-    },
-    {
-      label: "名前なし Preview",
-      detail: "匿名通知の見え方を確認するための preview URL です。",
-      url: anonymousPreviewUrl,
-    },
-  ];
-}
-
-async function fetchYouTubeWorkspaceStatus(apiBaseUrl: string, youtubeChannelHint: string) {
+async function fetchYouTubeWorkspaceStatus(
+  apiBaseUrl: string,
+  channelHint: string,
+): Promise<YouTubeWorkspaceStatus> {
   return invoke<YouTubeWorkspaceStatus>("get_youtube_workspace_status", {
     apiBaseUrl,
-    youtubeChannelHint,
+    youtubeChannelHint: channelHint,
   });
 }
 
 function App() {
   const [activeTab, setActiveTab] = useState<TabId>("dashboard");
-  const [overview, setOverview] = useState<DesktopOverview>(fallbackOverview);
   const [settings, setSettings] = useState<DesktopSettings>(fallbackSettings);
   const [savedSettings, setSavedSettings] = useState<DesktopSettings>(fallbackSettings);
-  const [backendConnectionStatus, setBackendConnectionStatus] = useState<BackendConnectionStatus>(
-    fallbackBackendConnectionStatus,
-  );
-  const [youtubeWorkspaceStatus, setYouTubeWorkspaceStatus] = useState<YouTubeWorkspaceStatus>(
-    fallbackYouTubeWorkspaceStatus,
-  );
-  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [backendConnectionStatus, setBackendConnectionStatus] = useState<BackendConnectionStatus>({
+    ok: false, checkedAt: "", statusCode: null, service: null, environment: null, message: "",
+  });
+  const [youtubeWorkspaceStatus, setYouTubeWorkspaceStatus] =
+    useState<YouTubeWorkspaceStatus>(fallbackYouTubeStatus);
   const [isLoadingSettings, setIsLoadingSettings] = useState(true);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
-  const [isCheckingBackend, setIsCheckingBackend] = useState(false);
-  const [isCheckingYouTube, setIsCheckingYouTube] = useState(false);
   const [isOpeningOAuthPage, setIsOpeningOAuthPage] = useState(false);
-  const [isAutoRefreshingYouTube, setIsAutoRefreshingYouTube] = useState(false);
   const [isAwaitingOAuthCompletion, setIsAwaitingOAuthCompletion] = useState(false);
   const [settingsMessage, setSettingsMessage] = useState<string | null>(null);
   const [lastError, setLastError] = useState<string | null>(null);
@@ -290,179 +106,6 @@ function App() {
     settings.namedMessageTemplate !== savedSettings.namedMessageTemplate ||
     settings.anonymousMessageTemplate !== savedSettings.anonymousMessageTemplate;
 
-  const readinessItems = [
-    {
-      label: "API Base URL",
-      value: settings.apiBaseUrl,
-      ready: isConfigured(settings.apiBaseUrl),
-      help: "Go backend の API 接続先です。",
-    },
-    {
-      label: "Overlay Base URL",
-      value: settings.overlayBaseUrl,
-      ready: isConfigured(settings.overlayBaseUrl),
-      help: "OBS で読む公開 overlay のベース URL です。",
-    },
-    {
-      label: "Workspace Label",
-      value: settings.workspaceLabel,
-      ready: isConfigured(settings.workspaceLabel),
-      help: "複数環境を見分けるための表示名です。",
-    },
-  ];
-  const overlayPreviewLinks = buildOverlayPreviewLinks(
-    settings.overlayBaseUrl,
-    settings.workspaceLabel,
-    settings.youtubeChannelHint,
-  );
-  const savedOverlayPreviewLinks = buildOverlayPreviewLinks(
-    savedSettings.overlayBaseUrl,
-    savedSettings.workspaceLabel,
-    savedSettings.youtubeChannelHint,
-  );
-
-  useEffect(() => {
-    let isMounted = true;
-
-    const loadOverview = async () => {
-      try {
-        const nextOverview = await invoke<DesktopOverview>("get_desktop_overview");
-        if (isMounted) {
-          setOverview(nextOverview);
-          setLastError(null);
-        }
-      } catch (error) {
-        if (isMounted) {
-          setLastError(`状態の取得に失敗しました: ${String(error)}`);
-        }
-      }
-    };
-
-    const loadSettings = async () => {
-      try {
-        const nextSettings = await invoke<DesktopSettings>("get_desktop_settings");
-        if (!isMounted) {
-          return;
-        }
-
-        setSettings(nextSettings);
-        setSavedSettings(nextSettings);
-        setSettingsMessage("保存済みの desktop 設定を読み込みました。");
-
-        if (nextSettings.apiBaseUrl.trim() !== "") {
-          const status = await invoke<BackendConnectionStatus>("check_backend_connection", {
-            apiBaseUrl: nextSettings.apiBaseUrl,
-          });
-          const youtubeStatus = await fetchYouTubeWorkspaceStatus(
-            nextSettings.apiBaseUrl,
-            nextSettings.youtubeChannelHint,
-          );
-          if (isMounted) {
-            setBackendConnectionStatus(status);
-            setYouTubeWorkspaceStatus(youtubeStatus);
-          }
-        }
-      } catch (error) {
-        if (isMounted) {
-          setSettingsMessage(`desktop 設定の取得に失敗しました: ${String(error)}`);
-        }
-      } finally {
-        if (isMounted) {
-          setIsLoadingSettings(false);
-        }
-      }
-    };
-
-    const loadWorkerStatus = async () => {
-      try {
-        const status = await invoke<{ running: boolean; message: string }>("get_worker_status");
-        if (isMounted) {
-          setWorkerRunning(status.running);
-        }
-      } catch (_error) {
-        // ignore
-      }
-    };
-
-    void loadOverview();
-    void loadSettings();
-    void loadWorkerStatus();
-
-    const workerInterval = window.setInterval(() => {
-      void loadWorkerStatus();
-    }, 3000);
-
-    return () => {
-      isMounted = false;
-      window.clearInterval(workerInterval);
-    };
-  }, []);
-
-  useEffect(() => {
-    const shouldAutoRefresh =
-      (youtubeWorkspaceStatus.stage === "auth_started" || isAwaitingOAuthCompletion) &&
-      !youtubeWorkspaceStatus.connected &&
-      savedSettings.apiBaseUrl.trim() !== "";
-
-    if (!shouldAutoRefresh) {
-      setIsAutoRefreshingYouTube(false);
-      return;
-    }
-
-    let cancelled = false;
-
-    const refreshStatus = async () => {
-      setIsAutoRefreshingYouTube(true);
-      try {
-        const status = await fetchYouTubeWorkspaceStatus(
-          savedSettings.apiBaseUrl,
-          savedSettings.youtubeChannelHint,
-        );
-        if (cancelled) {
-          return;
-        }
-
-        setYouTubeWorkspaceStatus(status);
-        setLastError(null);
-        if (status.connected) {
-          setIsAwaitingOAuthCompletion(false);
-          setSettingsMessage("YouTube 接続状態を自動更新しました。");
-        }
-      } catch (error) {
-        if (!cancelled) {
-          setLastError(`YouTube 状態の自動更新に失敗しました: ${String(error)}`);
-        }
-      } finally {
-        if (!cancelled) {
-          setIsAutoRefreshingYouTube(false);
-        }
-      }
-    };
-
-    const intervalId = window.setInterval(() => {
-      void refreshStatus();
-    }, 3000);
-
-    const handleWindowFocus = () => {
-      void refreshStatus();
-    };
-
-    window.addEventListener("focus", handleWindowFocus);
-    void refreshStatus();
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(intervalId);
-      window.removeEventListener("focus", handleWindowFocus);
-    };
-  }, [
-    isAwaitingOAuthCompletion,
-    savedSettings.apiBaseUrl,
-    savedSettings.youtubeChannelHint,
-    youtubeWorkspaceStatus.connected,
-    youtubeWorkspaceStatus.stage,
-  ]);
-
   const testOverlayUrl = (() => {
     const base = savedSettings.overlayBaseUrl.trim().replace(/\/+$/, "") || "http://localhost:5173";
     const workspace = savedSettings.workspaceLabel.trim().replace(/\s+/g, "-").toLowerCase() || "default-workspace";
@@ -470,22 +113,91 @@ function App() {
     return `${base}/live/${workspace}?api=${encodeURIComponent(api)}`;
   })();
 
-  const handleSendTestEvent = async (kind?: string) => {
-    setIsSendingTestEvent(true);
-    setTestEventMessage(null);
+  // 初期化
+  useEffect(() => {
+    let isMounted = true;
 
-    try {
-      const result = await invoke<{ ok: boolean; message: string }>("send_test_event", {
-        subscriberName: kind === "new_anonymous_subscriber" ? "" : testSubscriberName,
-        kind: kind ?? "new_subscriber",
-      });
-      setTestEventMessage(result.message);
-    } catch (error) {
-      setTestEventMessage(`テスト送信に失敗しました: ${String(error)}`);
-    } finally {
-      setIsSendingTestEvent(false);
-    }
-  };
+    const load = async () => {
+      try {
+        const nextSettings = await invoke<DesktopSettings>("get_desktop_settings");
+        if (!isMounted) return;
+        setSettings(nextSettings);
+        setSavedSettings(nextSettings);
+
+        if (nextSettings.apiBaseUrl.trim() !== "") {
+          const connStatus = await invoke<BackendConnectionStatus>("check_backend_connection", {
+            apiBaseUrl: nextSettings.apiBaseUrl,
+          });
+          const ytStatus = await fetchYouTubeWorkspaceStatus(
+            nextSettings.apiBaseUrl,
+            nextSettings.youtubeChannelHint,
+          );
+          if (isMounted) {
+            setBackendConnectionStatus(connStatus);
+            setYouTubeWorkspaceStatus(ytStatus);
+          }
+        }
+      } catch (error) {
+        if (isMounted) setLastError(`設定の読み込みに失敗: ${String(error)}`);
+      } finally {
+        if (isMounted) setIsLoadingSettings(false);
+      }
+    };
+
+    const loadWorkerStatus = async () => {
+      try {
+        const status = await invoke<{ running: boolean; message: string }>("get_worker_status");
+        if (isMounted) setWorkerRunning(status.running);
+      } catch (_e) { /* ignore */ }
+    };
+
+    void load();
+    void loadWorkerStatus();
+
+    const workerInterval = window.setInterval(() => void loadWorkerStatus(), 3000);
+
+    return () => {
+      isMounted = false;
+      window.clearInterval(workerInterval);
+    };
+  }, []);
+
+  // OAuth 自動リフレッシュ
+  useEffect(() => {
+    const shouldAutoRefresh =
+      (youtubeWorkspaceStatus.stage === "auth_started" || isAwaitingOAuthCompletion) &&
+      !youtubeWorkspaceStatus.connected &&
+      savedSettings.apiBaseUrl.trim() !== "";
+
+    if (!shouldAutoRefresh) return;
+
+    let cancelled = false;
+
+    const refresh = async () => {
+      if (cancelled) return;
+      try {
+        const status = await fetchYouTubeWorkspaceStatus(
+          savedSettings.apiBaseUrl,
+          savedSettings.youtubeChannelHint,
+        );
+        if (!cancelled) {
+          setYouTubeWorkspaceStatus(status);
+          if (status.connected) setIsAwaitingOAuthCompletion(false);
+        }
+      } catch (_e) { /* ignore */ }
+    };
+
+    void refresh();
+    const intervalId = window.setInterval(() => void refresh(), 3000);
+    const onFocus = () => void refresh();
+    window.addEventListener("focus", onFocus);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [isAwaitingOAuthCompletion, savedSettings.apiBaseUrl, savedSettings.youtubeChannelHint, youtubeWorkspaceStatus.connected, youtubeWorkspaceStatus.stage]);
 
   const handleStartWorker = async () => {
     try {
@@ -507,691 +219,207 @@ function App() {
     }
   };
 
-  const handleRefresh = async () => {
-    setIsRefreshing(true);
-    try {
-      const nextOverview = await invoke<DesktopOverview>("get_desktop_overview");
-      const nextSettings = await invoke<DesktopSettings>("get_desktop_settings");
-      const nextConnectionStatus = await invoke<BackendConnectionStatus>("check_backend_connection", {
-        apiBaseUrl: nextSettings.apiBaseUrl,
-      });
-      const nextYouTubeStatus = await fetchYouTubeWorkspaceStatus(
-        nextSettings.apiBaseUrl,
-        nextSettings.youtubeChannelHint,
-      );
-
-      setOverview(nextOverview);
-      setSettings(nextSettings);
-      setSavedSettings(nextSettings);
-      setBackendConnectionStatus(nextConnectionStatus);
-      setYouTubeWorkspaceStatus(nextYouTubeStatus);
-      setLastError(null);
-      setSettingsMessage("desktop 設定と状態を再取得しました。");
-    } catch (error) {
-      setLastError(`状態の再取得に失敗しました: ${String(error)}`);
-    } finally {
-      setIsRefreshing(false);
-    }
-  };
-
   const handleSaveSettings = async () => {
     setIsSavingSettings(true);
-    setSettingsMessage("desktop 設定を保存しています...");
-
+    setSettingsMessage("設定を保存しています...");
     try {
-      const updated = await invoke<DesktopSettings>("update_desktop_settings", {
-        settings,
+      const saved = await invoke<DesktopSettings>("update_desktop_settings", { settings });
+      setSettings(saved);
+      setSavedSettings(saved);
+      setSettingsMessage("設定を保存しました。");
+
+      const connStatus = await invoke<BackendConnectionStatus>("check_backend_connection", {
+        apiBaseUrl: saved.apiBaseUrl,
       });
-      setSettings(updated);
-      setSavedSettings(updated);
-      setSettingsMessage("desktop 設定を保存しました。");
-      setLastError(null);
+      setBackendConnectionStatus(connStatus);
     } catch (error) {
-      setSettingsMessage(`desktop 設定の保存に失敗しました: ${String(error)}`);
+      setSettingsMessage(`保存に失敗: ${String(error)}`);
     } finally {
       setIsSavingSettings(false);
     }
   };
 
-  const handleCheckBackendConnection = async (apiBaseUrl: string) => {
-    setIsCheckingBackend(true);
-    try {
-      const status = await invoke<BackendConnectionStatus>("check_backend_connection", {
-        apiBaseUrl,
-      });
-      setBackendConnectionStatus(status);
-      setLastError(null);
-    } catch (error) {
-      setLastError(`backend 接続確認に失敗しました: ${String(error)}`);
-    } finally {
-      setIsCheckingBackend(false);
-    }
-  };
-
-  const handleCheckYouTubeWorkspace = async (
-    apiBaseUrl: string,
-    youtubeChannelHint: string,
-  ) => {
-    setIsCheckingYouTube(true);
-    try {
-      const status = await fetchYouTubeWorkspaceStatus(apiBaseUrl, youtubeChannelHint);
-      setYouTubeWorkspaceStatus(status);
-      setLastError(null);
-    } catch (error) {
-      setLastError(`YouTube 状態の取得に失敗しました: ${String(error)}`);
-    } finally {
-      setIsCheckingYouTube(false);
-    }
-  };
-
-  const handleOpenOAuthPage = async (
-    url: string | null,
-    apiBaseUrl: string,
-    youtubeChannelHint: string,
-  ) => {
-    if (!url || url.trim() === "") {
-      return;
-    }
-
+  const handleStartOAuth = async () => {
     setIsOpeningOAuthPage(true);
     try {
-      setIsAwaitingOAuthCompletion(true);
-      setYouTubeWorkspaceStatus((current) => ({
-        ...current,
-        ok: true,
-        stage: "auth_started",
-        lastEvent: "OAuth 開始ページを開きました。認可完了を待っています。",
-        message: "OAuth 開始ページを開きました。認可完了後は自動で状態を確認します。",
-      }));
-      await openUrl(url);
-      const status = await fetchYouTubeWorkspaceStatus(apiBaseUrl, youtubeChannelHint);
+      const status = await fetchYouTubeWorkspaceStatus(
+        savedSettings.apiBaseUrl,
+        savedSettings.youtubeChannelHint,
+      );
       setYouTubeWorkspaceStatus(status);
-      if (status.stage === "auth_started") {
-        setSettingsMessage(
-          "OAuth 開始ページを開きました。認可完了を待っている間は自動で状態を確認します。",
-        );
+
+      if (status.oauthStartUrl) {
+        setIsAwaitingOAuthCompletion(true);
+        await openUrl(status.oauthStartUrl);
       }
-      if (status.connected) {
-        setIsAwaitingOAuthCompletion(false);
-      }
-      setLastError(null);
     } catch (error) {
-      setIsAwaitingOAuthCompletion(false);
-      setLastError(`OAuth 開始ページを開けませんでした: ${String(error)}`);
+      setLastError(`OAuth の開始に失敗: ${String(error)}`);
     } finally {
       setIsOpeningOAuthPage(false);
     }
   };
 
-  const handleOpenExternalUrl = async (url: string) => {
+  const handleSendTestEvent = async (kind?: string) => {
+    setIsSendingTestEvent(true);
+    setTestEventMessage(null);
     try {
-      await openUrl(url);
-      setLastError(null);
+      const result = await invoke<{ ok: boolean; message: string }>("send_test_event", {
+        subscriberName: kind === "new_anonymous_subscriber" ? "" : testSubscriberName,
+        kind: kind ?? "new_subscriber",
+      });
+      setTestEventMessage(result.message);
     } catch (error) {
-      setLastError(`URL を開けませんでした: ${String(error)}`);
+      setTestEventMessage(`送信に失敗: ${String(error)}`);
+    } finally {
+      setIsSendingTestEvent(false);
     }
   };
+
+  if (isLoadingSettings) {
+    return (
+      <main className="app-shell">
+        <p className="hint-text">読み込み中...</p>
+      </main>
+    );
+  }
 
   return (
     <main className="app-shell">
       <section className="hero-card">
         <div className="hero-copy">
-          <p className="eyebrow">Cloud Notification Workspace</p>
-          <h1>{overview.productName}</h1>
-          <p className="hero-text">{overview.summary}</p>
+          <p className="eyebrow">チャンネル登録通知</p>
+          <h1>Subnotify</h1>
+          <p className="hero-text">
+            YouTube のチャンネル登録通知を OBS オーバーレイとして表示します。
+          </p>
         </div>
 
         <div className="hero-status">
           <div className="status-pill">
-            <span className={statusClassName(overview.desktopStatus.state)} />
-            {overview.stageLabel}
+            <span className={`status-dot ${workerRunning ? "is-ready" : ""}`} />
+            {workerRunning ? "監視中" : "待機中"}
           </div>
           <p className="status-help">
-            v1 の見た目を引き継ぎつつ、v2 のクラウド構成へ移るための最初の管理画面です。
+            {workerRunning
+              ? "チャンネル登録者をポーリング中です。新規登録を検出すると通知します。"
+              : "ポーリングを開始すると、チャンネル登録の監視が始まります。"}
           </p>
-          <div className="hero-badges">
-            <span className="meta-badge">{settings.workspaceLabel}</span>
-            <span className="meta-badge">
-              {isConfigured(settings.youtubeChannelHint)
-                ? `Channel: ${settings.youtubeChannelHint}`
-                : "Channel: 未設定"}
-            </span>
-          </div>
           <div className="action-row">
-            <button
-              className={`secondary-button ${isRefreshing ? "is-disabled" : ""}`}
-              disabled={isRefreshing}
-              onClick={() => void handleRefresh()}
-              type="button"
-            >
-              {isRefreshing ? "更新中..." : "状態を更新"}
-            </button>
+            {workerRunning ? (
+              <button className="worker-stop-button" onClick={() => void handleStopWorker()} type="button">
+                ポーリング停止
+              </button>
+            ) : (
+              <button className="worker-start-button" onClick={() => void handleStartWorker()} type="button">
+                ポーリング開始
+              </button>
+            )}
           </div>
+          {workerMessage ? <p className="status-help">{workerMessage}</p> : null}
         </div>
       </section>
 
       <nav className="tab-bar">
-        <button
-          className={`tab-button ${activeTab === "dashboard" ? "is-active" : ""}`}
-          onClick={() => setActiveTab("dashboard")}
-          type="button"
-        >
+        <button className={`tab-button ${activeTab === "dashboard" ? "is-active" : ""}`} onClick={() => setActiveTab("dashboard")} type="button">
           ダッシュボード
         </button>
-        <button
-          className={`tab-button ${activeTab === "settings" ? "is-active" : ""}`}
-          onClick={() => setActiveTab("settings")}
-          type="button"
-        >
-          設定
-        </button>
-        <button
-          className={`tab-button ${activeTab === "test" ? "is-active" : ""}`}
-          onClick={() => setActiveTab("test")}
-          type="button"
-        >
+        <button className={`tab-button ${activeTab === "test" ? "is-active" : ""}`} onClick={() => setActiveTab("test")} type="button">
           テスト
         </button>
-        <button
-          className={`tab-button ${activeTab === "roadmap" ? "is-active" : ""}`}
-          onClick={() => setActiveTab("roadmap")}
-          type="button"
-        >
-          ロードマップ
+        <button className={`tab-button ${activeTab === "settings" ? "is-active" : ""}`} onClick={() => setActiveTab("settings")} type="button">
+          設定
         </button>
       </nav>
-
-      <div className="worker-bar">
-        <div className="worker-status">
-          <span className={`status-dot ${workerRunning ? "is-ready" : ""}`} />
-          <span className="worker-label">
-            {workerRunning ? "ポーリング実行中" : "ポーリング停止中"}
-          </span>
-        </div>
-        <div className="worker-actions">
-          {workerRunning ? (
-            <button
-              className="worker-stop-button"
-              onClick={() => void handleStopWorker()}
-              type="button"
-            >
-              停止
-            </button>
-          ) : (
-            <button
-              className="worker-start-button"
-              onClick={() => void handleStartWorker()}
-              type="button"
-            >
-              ポーリング開始
-            </button>
-          )}
-        </div>
-        {workerMessage ? <span className="worker-message">{workerMessage}</span> : null}
-      </div>
 
       <div className="tab-content">
         {activeTab === "dashboard" ? (
           <section className="dashboard-grid">
-            {[overview.desktopStatus, overview.serverStatus, overview.overlayStatus].map((item) => (
-              <article className="panel-card" key={item.label}>
-                <p className="panel-label">{item.label}</p>
-                <h2>
-                  {item.state === "ready"
-                    ? "着手済み"
-                    : item.state === "planning"
-                      ? "設計中"
-                      : "待機中"}
-                </h2>
-                <p className="panel-text">{item.detail}</p>
-                <div className="status-row">
-                  <span className={statusClassName(item.state)} />
-                  <span className="status-inline-text">{item.label}</span>
-                </div>
-              </article>
-            ))}
+            <article className="panel-card">
+              <p className="panel-label">YouTube 接続</p>
+              <h2>{youtubeWorkspaceStatus.connected ? "接続済み" : "未接続"}</h2>
 
-            <article className="panel-card wide-card">
-              <p className="panel-label">Readiness</p>
-              <h2>接続設定の準備状況</h2>
-              <div className="stack-list">
-                {readinessItems.map((item) => (
-                  <div className="stack-item" key={item.label}>
-                    <div className="status-row">
-                      <span className={item.ready ? "status-dot is-ready" : "status-dot"} />
-                      <span className="status-inline-text">{item.label}</span>
-                    </div>
-                    <p className="panel-text mono-text">
-                      {item.value.trim() === "" ? "未設定" : item.value}
-                    </p>
-                    <p className="field-help">{item.help}</p>
-                  </div>
-                ))}
-              </div>
-            </article>
-
-            <article className="panel-card wide-card">
-              <p className="panel-label">Overlay Preview</p>
-              <h2>overlay URL helper</h2>
-              <p className="panel-text">
-                overlay 本体はまだ未実装ですが、desktop から想定 URL を先に確認できます。
-              </p>
-              {savedOverlayPreviewLinks.length > 0 ? (
-                <div className="stack-list">
-                  {savedOverlayPreviewLinks.map((item) => (
-                    <div className="stack-item" key={item.label}>
-                      <strong>{item.label}</strong>
-                      <p className="field-help">{item.detail}</p>
-                      <p className="panel-text mono-text">{item.url}</p>
-                      <div className="action-row">
-                        <button
-                          className="secondary-button"
-                          onClick={() => void handleOpenExternalUrl(item.url)}
-                          type="button"
-                        >
-                          URL を開く
-                        </button>
-                      </div>
-                    </div>
-                  ))}
+              <div className="settings-preview">
+                <div className="setting-row">
+                  <span>接続状態</span>
+                  <strong>
+                    {youtubeWorkspaceStatus.connected
+                      ? "接続済み"
+                      : youtubeWorkspaceStatus.stage === "auth_started"
+                        ? "ログイン待機中"
+                        : "未接続"}
+                  </strong>
                 </div>
-              ) : (
-                <p className="field-help">Overlay Base URL を設定すると helper URL を表示します。</p>
-              )}
-            </article>
-
-            <article className="panel-card wide-card">
-              <p className="panel-label">Backend Health</p>
-              <h2>Go backend の接続状態</h2>
-              <div className="status-row">
-                <span className={backendConnectionStatus.ok ? "status-dot is-ready" : "status-dot"} />
-                <span className="status-inline-text">
-                  {backendConnectionStatus.ok ? "接続成功" : "未接続 / 失敗"}
-                </span>
-              </div>
-              <p className="panel-text">{backendConnectionStatus.message}</p>
-              <div className="stack-list compact-stack">
-                <div className="stack-item">
-                  <strong>API Base URL</strong>
-                  <p className="panel-text mono-text">{savedSettings.apiBaseUrl || "未設定"}</p>
-                </div>
-                <div className="stack-item">
-                  <strong>Service</strong>
-                  <p className="panel-text">{backendConnectionStatus.service || "-"}</p>
-                </div>
-                <div className="stack-item">
-                  <strong>Environment</strong>
-                  <p className="panel-text">{backendConnectionStatus.environment || "-"}</p>
-                </div>
-                <div className="stack-item">
-                  <strong>Last Checked</strong>
-                  <p className="panel-text">{backendConnectionStatus.checkedAt || "-"}</p>
+                <div className="setting-row">
+                  <span>チャンネル</span>
+                  <strong>{youtubeWorkspaceStatus.channelLabel || "未接続"}</strong>
                 </div>
               </div>
+
               <div className="action-row">
                 <button
-                  className={`secondary-button ${isCheckingBackend ? "is-disabled" : ""}`}
-                  disabled={isCheckingBackend}
-                  onClick={() => void handleCheckBackendConnection(savedSettings.apiBaseUrl)}
+                  className={`secondary-button ${(youtubeWorkspaceStatus.connected || isOpeningOAuthPage) ? "is-disabled" : ""}`}
+                  disabled={youtubeWorkspaceStatus.connected || isOpeningOAuthPage}
+                  onClick={() => void handleStartOAuth()}
                   type="button"
                 >
-                  {isCheckingBackend ? "確認中..." : "接続確認"}
+                  {isOpeningOAuthPage ? "ログイン開始中..." : youtubeWorkspaceStatus.connected ? "接続済み" : "YouTube に接続"}
                 </button>
               </div>
-            </article>
-
-            <article className="panel-card wide-card">
-              <p className="panel-label">YouTube Workspace</p>
-              <h2>YouTube 接続フローの準備状況</h2>
-              <div className="status-row">
-                <span className={youtubeStatusClassName(youtubeWorkspaceStatus)} />
-                <span className="status-inline-text">{youtubeStatusLabel(youtubeWorkspaceStatus)}</span>
-              </div>
-              <p className="panel-text">{youtubeWorkspaceStatus.message}</p>
-              {youtubeWorkspaceStatus.stage === "auth_started" ? (
-                <p className="field-help">
-                  {isAutoRefreshingYouTube
-                    ? "認可完了を待ちながら状態を確認しています..."
-                    : "認可待ちの間は数秒おきとウィンドウ復帰時に自動更新します。"}
-                </p>
+              <p className="hint-text">
+                Google のログイン画面が開きます。許可するとチャンネル情報が取得されます。
+              </p>
+              {youtubeWorkspaceStatus.lastEvent ? (
+                <p className="hint-text">{youtubeWorkspaceStatus.lastEvent}</p>
               ) : null}
-              <div className="stack-list compact-stack">
-                <div className="stack-item">
-                  <strong>Channel</strong>
-                  <p className="panel-text">{youtubeWorkspaceStatus.channelLabel}</p>
-                </div>
-                <div className="stack-item">
-                  <strong>Stage</strong>
-                  <p className="panel-text">{youtubeWorkspaceStatus.stage}</p>
-                </div>
-                <div className="stack-item">
-                  <strong>OAuth Start URL</strong>
-                  <p className="panel-text mono-text">
-                    {youtubeWorkspaceStatus.oauthStartUrl || "-"}
-                  </p>
-                </div>
-                <div className="stack-item">
-                  <strong>Connected At</strong>
-                  <p className="panel-text">{youtubeWorkspaceStatus.connectedAt || "-"}</p>
-                </div>
-                <div className="stack-item">
-                  <strong>Last Event</strong>
-                  <p className="panel-text">{youtubeWorkspaceStatus.lastEvent}</p>
-                </div>
-              </div>
-              <div className="stack-list">
-                {youtubeWorkspaceStatus.guidance.map((line) => (
-                  <div className="stack-item" key={line}>
-                    <p className="panel-text">{line}</p>
-                  </div>
-                ))}
-              </div>
-              <div className="action-row">
-                <button
-                  className={`secondary-button ${isCheckingYouTube ? "is-disabled" : ""}`}
-                  disabled={isCheckingYouTube}
-                  onClick={() =>
-                    void handleCheckYouTubeWorkspace(
-                      savedSettings.apiBaseUrl,
-                      savedSettings.youtubeChannelHint,
-                    )
-                  }
-                  type="button"
-                >
-                  {isCheckingYouTube ? "確認中..." : "YouTube 状態を確認"}
-                </button>
-                {canOpenOAuthStartUrl(youtubeWorkspaceStatus) ? (
-                  <button
-                    className={`secondary-button ${isOpeningOAuthPage ? "is-disabled" : ""}`}
-                    disabled={isOpeningOAuthPage}
-                    onClick={() =>
-                      void handleOpenOAuthPage(
-                        youtubeWorkspaceStatus.oauthStartUrl,
-                        savedSettings.apiBaseUrl,
-                        savedSettings.youtubeChannelHint,
-                      )
-                    }
-                    type="button"
-                  >
-                    {isOpeningOAuthPage ? "起動中..." : "OAuth 開始ページを開く"}
-                  </button>
-                ) : null}
-              </div>
-            </article>
-
-            <article className="panel-card accent-card wide-card">
-              <p className="panel-label">通知モード</p>
-              <h2>v2 で切り替える表示ルール</h2>
-              <div className="stack-list">
-                {overview.alertModes.map((mode) => (
-                  <div className="stack-item" key={mode.title}>
-                    <strong>{mode.title}</strong>
-                    <p className="panel-text">{mode.behavior}</p>
-                  </div>
-                ))}
-              </div>
-            </article>
-          </section>
-        ) : null}
-
-        {activeTab === "settings" ? (
-          <section className="dashboard-grid single-column">
-            <article className="panel-card">
-              <p className="panel-label">Desktop Settings</p>
-              <h2>接続先と作業ラベル</h2>
-              <div className="settings-form">
-                <label className="field-group">
-                  <span className="field-label">Workspace Label</span>
-                  <input
-                    className="field-input"
-                    onChange={(event) => {
-                      const value = event.currentTarget.value;
-                      setSettings((current) => ({
-                        ...current,
-                        workspaceLabel: value,
-                      }));
-                    }}
-                    type="text"
-                    value={settings.workspaceLabel}
-                  />
-                  <p className="field-help">環境名や用途が分かる表示名を入れます。</p>
-                </label>
-
-                <label className="field-group">
-                  <span className="field-label">API Base URL</span>
-                  <input
-                    className="field-input"
-                    onChange={(event) => {
-                      const value = event.currentTarget.value;
-                      setSettings((current) => ({
-                        ...current,
-                        apiBaseUrl: value,
-                      }));
-                    }}
-                    placeholder="http://localhost:8080"
-                    type="url"
-                    value={settings.apiBaseUrl}
-                  />
-                  <p className="field-help">
-                    今後接続する Go backend のベース URL です。
-                  </p>
-                </label>
-
-                <label className="field-group">
-                  <span className="field-label">Overlay Base URL</span>
-                  <input
-                    className="field-input"
-                    onChange={(event) => {
-                      const value = event.currentTarget.value;
-                      setSettings((current) => ({
-                        ...current,
-                        overlayBaseUrl: value,
-                      }));
-                    }}
-                    placeholder="https://overlay.example.com/subnotify"
-                    type="url"
-                    value={settings.overlayBaseUrl}
-                  />
-                  <p className="field-help">
-                    OBS で読む公開 overlay 側のベース URL を想定しています。
-                  </p>
-                </label>
-
-                <label className="field-group">
-                  <span className="field-label">YouTube Channel Hint</span>
-                  <input
-                    className="field-input"
-                    onChange={(event) => {
-                      const value = event.currentTarget.value;
-                      setSettings((current) => ({
-                        ...current,
-                        youtubeChannelHint: value,
-                      }));
-                    }}
-                    placeholder="@your-channel"
-                    type="text"
-                    value={settings.youtubeChannelHint}
-                  />
-                  <p className="field-help">
-                    チャンネル ID やハンドルを仮置きするメモ欄です。YouTube 状態確認にも使います。
-                  </p>
-                </label>
-
-                <label className="field-group">
-                  <span className="field-label">YouTube OAuth Client ID</span>
-                  <input
-                    className="field-input"
-                    onChange={(event) => {
-                      const value = event.currentTarget.value;
-                      setSettings((current) => ({
-                        ...current,
-                        youtubeClientId: value,
-                      }));
-                    }}
-                    placeholder="xxxx.apps.googleusercontent.com"
-                    type="text"
-                    value={settings.youtubeClientId}
-                  />
-                </label>
-
-                <label className="field-group">
-                  <span className="field-label">YouTube OAuth Client Secret</span>
-                  <input
-                    className="field-input"
-                    onChange={(event) => {
-                      const value = event.currentTarget.value;
-                      setSettings((current) => ({
-                        ...current,
-                        youtubeClientSecret: value,
-                      }));
-                    }}
-                    placeholder="GOCSPX-xxxx"
-                    type="password"
-                    value={settings.youtubeClientSecret}
-                  />
-                  <p className="field-help">
-                    Google Cloud Console で取得した OAuth クライアントの認証情報です。設定を保存するとバックエンドに自動で反映されます。
-                  </p>
-                </label>
-
-                <label className="field-group">
-                  <span className="field-label">名前あり通知のメッセージ</span>
-                  <p className="field-help">
-                    {"{subscriber}"} が登録者名に置換されます。例: {"{subscriber}"}さん、登録ありがとう！
-                  </p>
-                  <textarea
-                    className="field-input field-textarea"
-                    onChange={(event) => {
-                      const value = event.currentTarget.value;
-                      setSettings((current) => ({
-                        ...current,
-                        namedMessageTemplate: value,
-                      }));
-                    }}
-                    rows={3}
-                    value={settings.namedMessageTemplate}
-                  />
-                </label>
-
-                <label className="field-group">
-                  <span className="field-label">匿名通知のメッセージ</span>
-                  <p className="field-help">
-                    例: 登録ありがとう！
-                  </p>
-                  <textarea
-                    className="field-input field-textarea"
-                    onChange={(event) => {
-                      const value = event.currentTarget.value;
-                      setSettings((current) => ({
-                        ...current,
-                        anonymousMessageTemplate: value,
-                      }));
-                    }}
-                    rows={3}
-                    value={settings.anonymousMessageTemplate}
-                  />
-                </label>
-              </div>
-
-              <div className="action-row">
-                <button
-                  className={`secondary-button ${
-                    !hasUnsavedChanges || isSavingSettings ? "is-disabled" : ""
-                  }`}
-                  disabled={!hasUnsavedChanges || isSavingSettings}
-                  onClick={() => void handleSaveSettings()}
-                  type="button"
-                >
-                  {isSavingSettings ? "保存中..." : "設定を保存"}
-                </button>
-                <button
-                  className={`secondary-button ${isCheckingBackend ? "is-disabled" : ""}`}
-                  disabled={isCheckingBackend}
-                  onClick={() => void handleCheckBackendConnection(settings.apiBaseUrl)}
-                  type="button"
-                >
-                  {isCheckingBackend ? "確認中..." : "この URL で接続確認"}
-                </button>
-                <button
-                  className={`secondary-button ${isCheckingYouTube ? "is-disabled" : ""}`}
-                  disabled={isCheckingYouTube}
-                  onClick={() =>
-                    void handleCheckYouTubeWorkspace(
-                      settings.apiBaseUrl,
-                      settings.youtubeChannelHint,
-                    )
-                  }
-                  type="button"
-                >
-                  {isCheckingYouTube ? "確認中..." : "YouTube 状態を確認"}
-                </button>
-                {canOpenOAuthStartUrl(youtubeWorkspaceStatus) ? (
-                  <button
-                    className={`secondary-button ${isOpeningOAuthPage ? "is-disabled" : ""}`}
-                    disabled={isOpeningOAuthPage}
-                    onClick={() =>
-                      void handleOpenOAuthPage(
-                        youtubeWorkspaceStatus.oauthStartUrl,
-                        settings.apiBaseUrl,
-                        settings.youtubeChannelHint,
-                      )
-                    }
-                    type="button"
-                  >
-                    {isOpeningOAuthPage ? "起動中..." : "OAuth 開始ページを開く"}
-                  </button>
-                ) : null}
-              </div>
-
-              <p className={settingsMessage?.includes("失敗") ? "error-text" : "field-help"}>
-                {isLoadingSettings
-                  ? "desktop 設定を読み込んでいます..."
-                  : hasUnsavedChanges
-                    ? "未保存の変更があります。必要なら保存してください。"
-                    : settingsMessage}
-              </p>
-              <p className={backendConnectionStatus.ok ? "field-help" : "error-text"}>
-                {backendConnectionStatus.message}
-              </p>
-              <p className={youtubeWorkspaceStatus.ok ? "field-help" : "error-text"}>
-                {youtubeWorkspaceStatus.message}
-              </p>
-            </article>
-
-            <article className="panel-card accent-card">
-              <p className="panel-label">YouTube Flow</p>
-              <h2>接続フローの見取り図</h2>
-              <div className="timeline-list">
-                {[
-                  "desktop で API Base URL と Channel Hint を確認する",
-                  "backend の YouTube 状態 endpoint から OAuth 開始 URL を取得して開く",
-                  "ブラウザ側で認可完了を進めたら desktop が数秒おきに自動更新する",
-                ].map((line, index) => (
-                  <div className="timeline-item" key={line}>
-                    <span className="timeline-index">{index + 1}</span>
-                    <p className="panel-text">{line}</p>
-                  </div>
-                ))}
-              </div>
             </article>
 
             <article className="panel-card">
-              <p className="panel-label">Overlay Helper</p>
-              <h2>preview URL の確認</h2>
-              {overlayPreviewLinks.length > 0 ? (
-                <div className="stack-list">
-                  {overlayPreviewLinks.map((item) => (
-                    <div className="stack-item" key={item.label}>
-                      <strong>{item.label}</strong>
-                      <p className="field-help">{item.detail}</p>
-                      <p className="panel-text mono-text">{item.url}</p>
-                    </div>
-                  ))}
+              <p className="panel-label">OBS ブラウザソース</p>
+              <h2>オーバーレイ URL</h2>
+              <div className="url-box">
+                <code>{testOverlayUrl}</code>
+              </div>
+
+              <p className="field-label">設定手順</p>
+              <div className="settings-preview">
+                <div className="setting-row">
+                  <span>Step 1</span>
+                  <strong>OBS の「ソース」パネルで + ボタンをクリック</strong>
                 </div>
-              ) : (
-                <p className="field-help">Overlay Base URL を入力すると preview URL helper を表示します。</p>
-              )}
+                <div className="setting-row">
+                  <span>Step 2</span>
+                  <strong>「ブラウザ」を選択</strong>
+                </div>
+                <div className="setting-row">
+                  <span>Step 3</span>
+                  <strong>任意の名前（例: Subnotify）を入力して OK</strong>
+                </div>
+                <div className="setting-row">
+                  <span>Step 4</span>
+                  <strong>URL 欄に上のオーバーレイ URL を貼り付け</strong>
+                </div>
+              </div>
+              <p className="hint-text">
+                この URL は OBS 向けに透明背景です。配信画面の上にそのまま重ねて使えます。
+              </p>
             </article>
+
+            <article className="panel-card wide-card">
+              <p className="panel-label">バックエンド</p>
+              <h2>API 接続状態</h2>
+              <div className="settings-preview">
+                <div className="setting-row">
+                  <span>状態</span>
+                  <strong>{backendConnectionStatus.ok ? "接続成功" : "未接続"}</strong>
+                </div>
+                <div className="setting-row">
+                  <span>API URL</span>
+                  <strong>{savedSettings.apiBaseUrl || "未設定"}</strong>
+                </div>
+              </div>
+            </article>
+
+            {lastError ? <p className="error-text">{lastError}</p> : null}
           </section>
         ) : null}
 
@@ -1213,11 +441,7 @@ function App() {
                 </label>
 
                 <div className="action-row">
-                  <button
-                    className="secondary-button"
-                    onClick={() => void openUrl(testOverlayUrl)}
-                    type="button"
-                  >
+                  <button className="secondary-button" onClick={() => void openUrl(testOverlayUrl)} type="button">
                     ブラウザで開く
                   </button>
                 </div>
@@ -1258,31 +482,126 @@ function App() {
                 </p>
               ) : null}
 
-              <p className="field-help">
+              <p className="hint-text">
                 先にオーバーレイをブラウザで開いてから、テスト通知を押してください。
               </p>
             </article>
           </section>
         ) : null}
 
-        {activeTab === "roadmap" ? (
+        {activeTab === "settings" ? (
           <section className="dashboard-grid single-column">
             <article className="panel-card">
-              <p className="panel-label">Roadmap</p>
-              <h2>次に積む作業</h2>
-              <div className="timeline-list">
-                {overview.nextMilestones.map((line, index) => (
-                  <div className="timeline-item" key={line}>
-                    <span className="timeline-index">{index + 1}</span>
-                    <p className="panel-text">{line}</p>
-                  </div>
-                ))}
+              <p className="panel-label">通知メッセージ設定</p>
+
+              <div className="settings-form">
+                <label className="field-group">
+                  <span className="field-label">名前あり通知のメッセージ</span>
+                  <p className="hint-text">{"{subscriber}"} が登録者名に置換されます。</p>
+                  <textarea
+                    className="field-input field-textarea"
+                    onChange={(e) => { const v = e.currentTarget.value; setSettings((c) => ({ ...c, namedMessageTemplate: v })); }}
+                    rows={3}
+                    value={settings.namedMessageTemplate}
+                  />
+                </label>
+
+                <label className="field-group">
+                  <span className="field-label">匿名通知のメッセージ</span>
+                  <textarea
+                    className="field-input field-textarea"
+                    onChange={(e) => { const v = e.currentTarget.value; setSettings((c) => ({ ...c, anonymousMessageTemplate: v })); }}
+                    rows={3}
+                    value={settings.anonymousMessageTemplate}
+                  />
+                </label>
               </div>
             </article>
+
+            <article className="panel-card">
+              <p className="panel-label">接続設定</p>
+
+              <div className="settings-form">
+                <label className="field-group">
+                  <span className="field-label">Workspace Label</span>
+                  <input
+                    className="field-input"
+                    onChange={(e) => { const v = e.currentTarget.value; setSettings((c) => ({ ...c, workspaceLabel: v })); }}
+                    type="text"
+                    value={settings.workspaceLabel}
+                  />
+                  <p className="hint-text">チャンネル固有のワークスペース名です。URL に使われます。</p>
+                </label>
+
+                <label className="field-group">
+                  <span className="field-label">API Base URL</span>
+                  <input
+                    className="field-input"
+                    onChange={(e) => { const v = e.currentTarget.value; setSettings((c) => ({ ...c, apiBaseUrl: v })); }}
+                    type="text"
+                    value={settings.apiBaseUrl}
+                  />
+                </label>
+
+                <label className="field-group">
+                  <span className="field-label">Overlay Base URL</span>
+                  <input
+                    className="field-input"
+                    onChange={(e) => { const v = e.currentTarget.value; setSettings((c) => ({ ...c, overlayBaseUrl: v })); }}
+                    type="text"
+                    value={settings.overlayBaseUrl}
+                  />
+                </label>
+
+                <label className="field-group">
+                  <span className="field-label">YouTube Channel Hint</span>
+                  <input
+                    className="field-input"
+                    onChange={(e) => { const v = e.currentTarget.value; setSettings((c) => ({ ...c, youtubeChannelHint: v })); }}
+                    placeholder="@your-channel"
+                    type="text"
+                    value={settings.youtubeChannelHint}
+                  />
+                </label>
+
+                <label className="field-group">
+                  <span className="field-label">YouTube OAuth Client ID</span>
+                  <input
+                    className="field-input"
+                    onChange={(e) => { const v = e.currentTarget.value; setSettings((c) => ({ ...c, youtubeClientId: v })); }}
+                    placeholder="xxxx.apps.googleusercontent.com"
+                    type="text"
+                    value={settings.youtubeClientId}
+                  />
+                </label>
+
+                <label className="field-group">
+                  <span className="field-label">YouTube OAuth Client Secret</span>
+                  <input
+                    className="field-input"
+                    onChange={(e) => { const v = e.currentTarget.value; setSettings((c) => ({ ...c, youtubeClientSecret: v })); }}
+                    placeholder="GOCSPX-xxxx"
+                    type="password"
+                    value={settings.youtubeClientSecret}
+                  />
+                </label>
+              </div>
+            </article>
+
+            <div className="action-row">
+              <button
+                className={`secondary-button ${(!hasUnsavedChanges || isSavingSettings) ? "is-disabled" : ""}`}
+                disabled={!hasUnsavedChanges || isSavingSettings}
+                onClick={() => void handleSaveSettings()}
+                type="button"
+              >
+                {isSavingSettings ? "保存中..." : "設定を保存"}
+              </button>
+            </div>
+
+            {settingsMessage ? <p className="hint-text">{settingsMessage}</p> : null}
           </section>
         ) : null}
-
-        {lastError ? <p className="error-text sticky-error">{lastError}</p> : null}
       </div>
     </main>
   );
