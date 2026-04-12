@@ -61,6 +61,7 @@ struct YouTubeWorkspaceStatus {
     channel_hint: String,
     channel_label: String,
     oauth_start_url: Option<String>,
+    connected_at: Option<String>,
     last_event: String,
     guidance: Vec<String>,
     message: String,
@@ -135,6 +136,7 @@ struct YouTubeConnectionResponse {
     channel_hint: String,
     channel_label: String,
     oauth_start_url: String,
+    connected_at: String,
     last_event: String,
     guidance: Vec<String>,
 }
@@ -153,7 +155,7 @@ fn get_desktop_overview() -> DesktopOverview {
         server_status: ServiceStatus {
             label: "Server".to_string(),
             state: "ready".to_string(),
-            detail: "Go の API / worker 雛形と health endpoint までは実装済みです。".to_string(),
+            detail: "Go の API / worker 雛形に加えて YouTube auth の仮状態遷移まで実装済みです。".to_string(),
         },
         overlay_status: ServiceStatus {
             label: "Overlay".to_string(),
@@ -176,7 +178,7 @@ fn get_desktop_overview() -> DesktopOverview {
             },
         ],
         next_milestones: vec![
-            "YouTube OAuth 認可完了後の反映を desktop につなぐ".to_string(),
+            "YouTube OAuth 仮 callback 後の反映を desktop で自動更新できるようにする".to_string(),
             "backend の YouTube 状態を永続化できるようにする".to_string(),
             "公開 overlay の v2 デザインを分離して作る".to_string(),
         ],
@@ -331,6 +333,7 @@ fn get_youtube_workspace_status(
             channel_hint: youtube_channel_hint,
             channel_label: "API Base URL 未設定".to_string(),
             oauth_start_url: None,
+            connected_at: None,
             last_event: "backend 接続先が未設定のため確認できません。".to_string(),
             guidance: vec![
                 "設定タブで API Base URL を入力する".to_string(),
@@ -351,6 +354,7 @@ fn get_youtube_workspace_status(
                 channel_hint: youtube_channel_hint,
                 channel_label: "接続確認失敗".to_string(),
                 oauth_start_url: None,
+                connected_at: None,
                 last_event: "HTTP クライアントの初期化に失敗しました。".to_string(),
                 guidance: vec![],
                 message: format!("HTTP クライアントの初期化に失敗しました: {error}"),
@@ -374,6 +378,7 @@ fn get_youtube_workspace_status(
                 channel_hint: youtube_channel_hint,
                 channel_label: "接続確認失敗".to_string(),
                 oauth_start_url: None,
+                connected_at: None,
                 last_event: "YouTube 状態 endpoint に接続できませんでした。".to_string(),
                 guidance: vec![
                     "backend が起動しているか確認する".to_string(),
@@ -394,6 +399,7 @@ fn get_youtube_workspace_status(
             channel_hint: youtube_channel_hint,
             channel_label: "接続確認失敗".to_string(),
             oauth_start_url: None,
+            connected_at: None,
             last_event: format!("YouTube 状態 endpoint が HTTP {} を返しました。", status_code.as_u16()),
             guidance: vec![],
             message: format!("YouTube 状態 endpoint が失敗しました: HTTP {}", status_code.as_u16()),
@@ -404,6 +410,8 @@ fn get_youtube_workspace_status(
         Ok(payload) => {
             let message = if payload.connected {
                 "YouTube 接続状態を取得できました。".to_string()
+            } else if payload.stage == "auth_started" {
+                "OAuth 開始済みです。ブラウザ側の完了後にもう一度確認してください。".to_string()
             } else {
                 "YouTube 接続はまだ未完了ですが、接続フローの雛形は取得できました。".to_string()
             };
@@ -416,6 +424,11 @@ fn get_youtube_workspace_status(
                 channel_hint: payload.channel_hint,
                 channel_label: payload.channel_label,
                 oauth_start_url: Some(payload.oauth_start_url),
+                connected_at: if payload.connected_at.is_empty() {
+                    None
+                } else {
+                    Some(payload.connected_at)
+                },
                 last_event: payload.last_event,
                 guidance: payload.guidance,
                 message,
@@ -429,6 +442,7 @@ fn get_youtube_workspace_status(
             channel_hint: youtube_channel_hint,
             channel_label: "解析失敗".to_string(),
             oauth_start_url: None,
+            connected_at: None,
             last_event: "YouTube 状態 response を解析できませんでした。".to_string(),
             guidance: vec![],
             message: format!("YouTube 状態 response の解析に失敗しました: {error}"),
@@ -486,6 +500,7 @@ pub fn run() {
     let desktop_settings_state_for_setup = desktop_settings_state.clone();
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
         .manage(desktop_settings_state)
         .setup(move |app| {
             if let Ok(Some(settings)) = load_persisted_desktop_settings(app.handle()) {

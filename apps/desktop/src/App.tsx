@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { openUrl } from "@tauri-apps/plugin-opener";
 
 import "./App.css";
 
@@ -51,6 +52,7 @@ type YouTubeWorkspaceStatus = {
   channelHint: string;
   channelLabel: string;
   oauthStartUrl: string | null;
+  connectedAt: string | null;
   lastEvent: string;
   guidance: string[];
   message: string;
@@ -70,8 +72,8 @@ const fallbackOverview: DesktopOverview = {
   },
   serverStatus: {
     label: "Server",
-    state: "planning",
-    detail: "Go API / worker / YouTube polling をこれから実装します。",
+    state: "ready",
+    detail: "Go API / worker 雛形に加えて YouTube auth の仮状態遷移まで実装済みです。",
   },
   overlayStatus: {
     label: "Overlay",
@@ -94,7 +96,7 @@ const fallbackOverview: DesktopOverview = {
     },
   ],
   nextMilestones: [
-    "YouTube OAuth 認可完了後の反映を desktop につなぐ",
+    "YouTube OAuth 仮 callback 後の反映を desktop で自動更新できるようにする",
     "backend の YouTube 状態を永続化できるようにする",
     "overlay の v2 デザインを公開 URL 前提で組み直す",
   ],
@@ -129,6 +131,7 @@ const fallbackYouTubeWorkspaceStatus: YouTubeWorkspaceStatus = {
   channelHint: "",
   channelLabel: "未確認",
   oauthStartUrl: null,
+  connectedAt: null,
   lastEvent: "まだ YouTube 状態を確認していません。",
   guidance: [
     "API Base URL を設定して backend 接続確認を先に済ませる",
@@ -156,6 +159,29 @@ function canOpenOAuthStartUrl(status: YouTubeWorkspaceStatus) {
   return Boolean(status.oauthStartUrl && status.oauthStartUrl.trim() !== "");
 }
 
+function youtubeStatusLabel(status: YouTubeWorkspaceStatus) {
+  if (status.connected) {
+    return "接続済み";
+  }
+  if (status.stage === "auth_started") {
+    return "認可待ち";
+  }
+  if (status.ok) {
+    return "接続前";
+  }
+  return "未確認 / 失敗";
+}
+
+function youtubeStatusClassName(status: YouTubeWorkspaceStatus) {
+  if (status.connected) {
+    return "status-dot is-ready";
+  }
+  if (status.stage === "auth_started" || status.ok) {
+    return "status-dot is-planning";
+  }
+  return "status-dot";
+}
+
 function App() {
   const [activeTab, setActiveTab] = useState<TabId>("dashboard");
   const [overview, setOverview] = useState<DesktopOverview>(fallbackOverview);
@@ -172,6 +198,7 @@ function App() {
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [isCheckingBackend, setIsCheckingBackend] = useState(false);
   const [isCheckingYouTube, setIsCheckingYouTube] = useState(false);
+  const [isOpeningOAuthPage, setIsOpeningOAuthPage] = useState(false);
   const [settingsMessage, setSettingsMessage] = useState<string | null>(null);
   const [lastError, setLastError] = useState<string | null>(null);
 
@@ -342,6 +369,22 @@ function App() {
     }
   };
 
+  const handleOpenOAuthPage = async (url: string | null) => {
+    if (!url || url.trim() === "") {
+      return;
+    }
+
+    setIsOpeningOAuthPage(true);
+    try {
+      await openUrl(url);
+      setLastError(null);
+    } catch (error) {
+      setLastError(`OAuth 開始ページを開けませんでした: ${String(error)}`);
+    } finally {
+      setIsOpeningOAuthPage(false);
+    }
+  };
+
   return (
     <main className="app-shell">
       <section className="hero-card">
@@ -495,22 +538,8 @@ function App() {
               <p className="panel-label">YouTube Workspace</p>
               <h2>YouTube 接続フローの準備状況</h2>
               <div className="status-row">
-                <span
-                  className={
-                    youtubeWorkspaceStatus.connected
-                      ? "status-dot is-ready"
-                      : youtubeWorkspaceStatus.ok
-                        ? "status-dot is-planning"
-                        : "status-dot"
-                  }
-                />
-                <span className="status-inline-text">
-                  {youtubeWorkspaceStatus.connected
-                    ? "接続済み"
-                    : youtubeWorkspaceStatus.ok
-                      ? "接続前"
-                      : "未確認 / 失敗"}
-                </span>
+                <span className={youtubeStatusClassName(youtubeWorkspaceStatus)} />
+                <span className="status-inline-text">{youtubeStatusLabel(youtubeWorkspaceStatus)}</span>
               </div>
               <p className="panel-text">{youtubeWorkspaceStatus.message}</p>
               <div className="stack-list compact-stack">
@@ -527,6 +556,10 @@ function App() {
                   <p className="panel-text mono-text">
                     {youtubeWorkspaceStatus.oauthStartUrl || "-"}
                   </p>
+                </div>
+                <div className="stack-item">
+                  <strong>Connected At</strong>
+                  <p className="panel-text">{youtubeWorkspaceStatus.connectedAt || "-"}</p>
                 </div>
                 <div className="stack-item">
                   <strong>Last Event</strong>
@@ -555,14 +588,14 @@ function App() {
                   {isCheckingYouTube ? "確認中..." : "YouTube 状態を確認"}
                 </button>
                 {canOpenOAuthStartUrl(youtubeWorkspaceStatus) ? (
-                  <a
-                    className="secondary-button button-link"
-                    href={youtubeWorkspaceStatus.oauthStartUrl ?? "#"}
-                    rel="noreferrer"
-                    target="_blank"
+                  <button
+                    className={`secondary-button ${isOpeningOAuthPage ? "is-disabled" : ""}`}
+                    disabled={isOpeningOAuthPage}
+                    onClick={() => void handleOpenOAuthPage(youtubeWorkspaceStatus.oauthStartUrl)}
+                    type="button"
                   >
-                    OAuth 開始ページを開く
-                  </a>
+                    {isOpeningOAuthPage ? "起動中..." : "OAuth 開始ページを開く"}
+                  </button>
                 ) : null}
               </div>
             </article>
@@ -699,14 +732,14 @@ function App() {
                   {isCheckingYouTube ? "確認中..." : "YouTube 状態を確認"}
                 </button>
                 {canOpenOAuthStartUrl(youtubeWorkspaceStatus) ? (
-                  <a
-                    className="secondary-button button-link"
-                    href={youtubeWorkspaceStatus.oauthStartUrl ?? "#"}
-                    rel="noreferrer"
-                    target="_blank"
+                  <button
+                    className={`secondary-button ${isOpeningOAuthPage ? "is-disabled" : ""}`}
+                    disabled={isOpeningOAuthPage}
+                    onClick={() => void handleOpenOAuthPage(youtubeWorkspaceStatus.oauthStartUrl)}
+                    type="button"
                   >
-                    OAuth 開始ページを開く
-                  </a>
+                    {isOpeningOAuthPage ? "起動中..." : "OAuth 開始ページを開く"}
+                  </button>
                 ) : null}
               </div>
 
@@ -732,7 +765,7 @@ function App() {
                 {[
                   "desktop で API Base URL と Channel Hint を確認する",
                   "backend の YouTube 状態 endpoint から OAuth 開始 URL を取得して開く",
-                  "次の実装で認可完了後の反映をつなぐ",
+                  "ブラウザ側で認可完了を進めたら desktop で状態を再確認する",
                 ].map((line, index) => (
                   <div className="timeline-item" key={line}>
                     <span className="timeline-index">{index + 1}</span>

@@ -39,6 +39,10 @@ v2 project workspace for the successor to `subscreen`.
   - added a desktop YouTube workspace card and status check flow
   - added a scaffold OAuth start page at `/v1/youtube/auth/start`
   - added desktop links to open the scaffold OAuth start page from the saved backend state
+  - added an in-memory scaffold auth callback at `/v1/youtube/auth/callback`
+  - added temporary backend state transitions so YouTube status can move from `not_connected` to `auth_started` to `connected`
+  - added Go tests that verify the scaffold YouTube connection flow
+  - switched the desktop OAuth launch action to Tauri opener so external browser pages can actually be opened from the app
   - expanded `make stop` so it also cleans up the compiled local Go API process left by `go run`
   - confirmed `npm run build`, `cargo check`, and `go test ./...` pass
 
@@ -46,6 +50,7 @@ v2 project workspace for the successor to `subscreen`.
   - defining the v2 desktop control panel shape
   - refining the separation between desktop, overlay, and Go backend responsibilities
   - preparing the desktop app to connect to the real YouTube OAuth backend flow
+  - shaping how the scaffold auth flow will be replaced by real token persistence
 
 - Not started yet:
   - public overlay frontend
@@ -66,14 +71,15 @@ v2 project workspace for the successor to `subscreen`.
   - add overlay preview URL helpers
   - add a clearer onboarding flow for first-time setup
   - surface backend auth/channel connection state in the desktop app
-  - wire the YouTube OAuth completion callback into the desktop app
+  - auto-refresh YouTube connection state after the scaffold callback flow completes
 
 - Backend
   - decide storage strategy for channel state and notification history
   - add channel and auth endpoints
   - add structured logging and request logging
   - add real worker jobs for subscriber polling
-  - persist YouTube connection state instead of returning scaffold data
+  - persist YouTube connection state instead of keeping it only in memory
+  - replace the scaffold auth start/callback pages with the real Google OAuth flow
 
 - YouTube integration
   - implement OAuth flow on the backend side
@@ -164,6 +170,25 @@ make dev
    - `OAuth Start URL` as `http://localhost:8080/v1/youtube/auth/start?channel_hint=...` when a hint is set
    - the channel hint you entered, if any
 8. Click `OAuth 開始ページを開く` and confirm a browser tab opens the scaffold auth page.
+
+## Verify the scaffold auth callback flow
+
+1. Start both the backend and the desktop app:
+
+```bash
+cd /Users/abetetsuya/app/subnotify
+make dev
+```
+
+2. In the desktop app, open `設定` and set `YouTube Channel Hint` if needed.
+3. Click `YouTube 状態を確認`, then `OAuth 開始ページを開く`.
+4. In the opened browser page, click `認可完了をシミュレートする`.
+5. Confirm the browser shows the connected scaffold page.
+6. Return to the desktop app and click `YouTube 状態を確認` or `状態を更新`.
+7. Confirm the `YouTube Workspace` card changes to:
+   - `接続済み`
+   - `Stage` as `connected`
+   - `Connected At` with a timestamp
 
 ## Secret handling
 

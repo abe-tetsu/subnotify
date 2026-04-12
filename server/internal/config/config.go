@@ -3,11 +3,12 @@ package config
 import "os"
 
 type Config struct {
-	AppEnv         string
-	APIListenAddr  string
-	PublicBaseURL  string
-	OverlayBaseURL string
-	YouTubeAuthPath string
+	AppEnv                  string
+	APIListenAddr           string
+	PublicBaseURL           string
+	OverlayBaseURL          string
+	YouTubeAuthPath         string
+	YouTubeAuthCallbackPath string
 }
 
 func Load() Config {
@@ -19,6 +20,10 @@ func Load() Config {
 		YouTubeAuthPath: envOrDefault(
 			"SUBNOTIFY_YOUTUBE_AUTH_PATH",
 			"/v1/youtube/auth/start",
+		),
+		YouTubeAuthCallbackPath: envOrDefault(
+			"SUBNOTIFY_YOUTUBE_AUTH_CALLBACK_PATH",
+			"/v1/youtube/auth/callback",
 		),
 	}
 }
