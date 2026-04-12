@@ -33,6 +33,8 @@ type DesktopSettings = {
   apiBaseUrl: string;
   overlayBaseUrl: string;
   youtubeChannelHint: string;
+  youtubeClientId: string;
+  youtubeClientSecret: string;
 };
 
 type BackendConnectionStatus = {
@@ -118,6 +120,8 @@ const fallbackSettings: DesktopSettings = {
   apiBaseUrl: "http://localhost:8080",
   overlayBaseUrl: "https://overlay.example.com/subnotify",
   youtubeChannelHint: "",
+  youtubeClientId: "",
+  youtubeClientSecret: "",
 };
 
 const fallbackBackendConnectionStatus: BackendConnectionStatus = {
@@ -271,7 +275,9 @@ function App() {
     settings.workspaceLabel !== savedSettings.workspaceLabel ||
     settings.apiBaseUrl !== savedSettings.apiBaseUrl ||
     settings.overlayBaseUrl !== savedSettings.overlayBaseUrl ||
-    settings.youtubeChannelHint !== savedSettings.youtubeChannelHint;
+    settings.youtubeChannelHint !== savedSettings.youtubeChannelHint ||
+    settings.youtubeClientId !== savedSettings.youtubeClientId ||
+    settings.youtubeClientSecret !== savedSettings.youtubeClientSecret;
 
   const readinessItems = [
     {
@@ -907,6 +913,43 @@ function App() {
                   />
                   <p className="field-help">
                     チャンネル ID やハンドルを仮置きするメモ欄です。YouTube 状態確認にも使います。
+                  </p>
+                </label>
+
+                <label className="field-group">
+                  <span className="field-label">YouTube OAuth Client ID</span>
+                  <input
+                    className="field-input"
+                    onChange={(event) => {
+                      const value = event.currentTarget.value;
+                      setSettings((current) => ({
+                        ...current,
+                        youtubeClientId: value,
+                      }));
+                    }}
+                    placeholder="xxxx.apps.googleusercontent.com"
+                    type="text"
+                    value={settings.youtubeClientId}
+                  />
+                </label>
+
+                <label className="field-group">
+                  <span className="field-label">YouTube OAuth Client Secret</span>
+                  <input
+                    className="field-input"
+                    onChange={(event) => {
+                      const value = event.currentTarget.value;
+                      setSettings((current) => ({
+                        ...current,
+                        youtubeClientSecret: value,
+                      }));
+                    }}
+                    placeholder="GOCSPX-xxxx"
+                    type="password"
+                    value={settings.youtubeClientSecret}
+                  />
+                  <p className="field-help">
+                    Google Cloud Console で取得した OAuth クライアントの認証情報です。設定を保存するとバックエンドに自動で反映されます。
                   </p>
                 </label>
               </div>

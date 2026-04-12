@@ -6,17 +6,29 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/abe-tetsu/subnotify/server/internal/app"
 	"github.com/abe-tetsu/subnotify/server/internal/config"
 	"github.com/abe-tetsu/subnotify/server/internal/httpapi"
+	"github.com/abe-tetsu/subnotify/server/internal/youtube"
 )
 
 func main() {
 	cfg := config.Load()
-	application := app.New(cfg)
+
+	var oauth youtube.OAuthProvider
+	if cfg.YouTubeClientID != "" && cfg.YouTubeClientSecret != "" {
+		redirectURL := strings.TrimRight(cfg.PublicBaseURL, "/") + cfg.YouTubeAuthCallbackPath
+		oauth = youtube.NewOAuthService(cfg.YouTubeClientID, cfg.YouTubeClientSecret, redirectURL, cfg.DataDir)
+		log.Printf("OAuth credentials loaded from environment")
+	} else {
+		log.Printf("OAuth credentials not set. Use desktop settings to configure.")
+	}
+
+	application := app.New(cfg, oauth)
 
 	server := &http.Server{
 		Addr:              cfg.APIListenAddr,

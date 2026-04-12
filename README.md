@@ -24,10 +24,13 @@ YouTube チャンネル登録通知を OBS オーバーレイとして表示す�
 
 - **バックエンドAPI**
   - Go API スケルトン（`/health`, `/v1/meta`, `/v1/youtube/connection`）
-  - YouTube OAuth スカフォールド（状態遷移: `not_connected` → `auth_started` → `connected`）
-  - OAuth 開始・コールバックページ（HTML）
-  - ワーカーのハートビートスカフォールド
-  - Go テスト
+  - 実際の YouTube OAuth（Google 認可 → トークン交換 → チャンネル情報取得）
+  - トークンの JSON ファイル永続化（`.subnotify-data/youtube_token.json`）
+  - トークン自動リフレッシュ（期限切れ時に再永続化）
+  - CSRF state 検証
+  - サーバー再起動時のトークン自動復元
+  - ワーカーでのトークン有効性確認
+  - Go テスト（モック OAuthProvider によるフロー検証）
 
 - **オーバーレイ**
   - React + Vite シェル
@@ -40,17 +43,12 @@ YouTube チャンネル登録通知を OBS オーバーレイとして表示す�
 
 ### 次にやること
 
-1. **バックエンドに実際の YouTube OAuth を実装する**
-   - スカフォールドの認証ページを Google OAuth に置き換える
-   - トークンの永続化（ファイルまたはDB）
-   - リフレッシュトークンによる自動更新
-
-2. **登録者ポーリングをワーカーに実装する**
+1. **登録者ポーリングをワーカーに実装する**
    - `subscriptions.list?mySubscribers=true` で登録者を定期取得
    - 前回との差分検出で新規登録者を特定
    - 重複防止（既知の登録者IDを管理）
 
-3. **バックエンドからオーバーレイへの通知配信**
+2. **バックエンドからオーバーレイへの通知配信**
    - SSE（Server-Sent Events）または WebSocket でリアルタイム配信
    - オーバーレイが通知イベントを受信してカードを表示
 

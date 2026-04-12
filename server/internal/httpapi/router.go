@@ -1,15 +1,18 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"html"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
 
 	"github.com/abe-tetsu/subnotify/server/internal/app"
+	"github.com/abe-tetsu/subnotify/server/internal/youtube"
 )
 
 type metaResponse struct {
@@ -37,7 +40,17 @@ type youtubeConnectionResponse struct {
 	Guidance      []string `json:"guidance"`
 }
 
-func NewRouter(application app.App) http.Handler {
+type setCredentialsRequest struct {
+	ClientID     string `json:"clientId"`
+	ClientSecret string `json:"clientSecret"`
+}
+
+type setCredentialsResponse struct {
+	OK      bool   `json:"ok"`
+	Message string `json:"message"`
+}
+
+func NewRouter(application *app.App) http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
@@ -58,33 +71,52 @@ func NewRouter(application app.App) http.Handler {
 		})
 	})
 
+	mux.HandleFunc("POST /v1/youtube/credentials", func(w http.ResponseWriter, r *http.Request) {
+		var req setCredentialsRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeJSON(w, http.StatusBadRequest, setCredentialsResponse{OK: false, Message: "リクエストの解析に失敗しました"})
+			return
+		}
+
+		if strings.TrimSpace(req.ClientID) == "" || strings.TrimSpace(req.ClientSecret) == "" {
+			writeJSON(w, http.StatusBadRequest, setCredentialsResponse{OK: false, Message: "クライアントIDとシークレットを入力してください"})
+			return
+		}
+
+		redirectURL := application.BuildRedirectURL()
+		oauth := youtube.NewOAuthService(
+			strings.TrimSpace(req.ClientID),
+			strings.TrimSpace(req.ClientSecret),
+			redirectURL,
+			application.Config.DataDir,
+		)
+		application.SetOAuth(oauth)
+
+		writeJSON(w, http.StatusOK, setCredentialsResponse{OK: true, Message: "OAuth クレデンシャルを設定しました"})
+	})
+
 	mux.HandleFunc("GET /v1/youtube/connection", func(w http.ResponseWriter, r *http.Request) {
 		channelHint := strings.TrimSpace(r.URL.Query().Get("channel_hint"))
 		snapshot := application.GetYouTubeConnection(channelHint)
+
+		oauth := application.GetOAuth()
+		if !snapshot.Connected && oauth != nil && oauth.HasToken() {
+			info, err := oauth.FetchChannelInfo(context.Background())
+			if err == nil {
+				application.RestoreYouTubeConnection(info.Title, info.ID)
+				snapshot = application.GetYouTubeConnection(channelHint)
+			} else {
+				log.Printf("[subnotify] トークンからの接続復元に失敗: %v", err)
+			}
+		}
+
 		oauthStartURL := buildURL(
 			application.Config.PublicBaseURL,
 			application.Config.YouTubeAuthPath,
 			channelHint,
 		)
-		guidance := []string{
-			"desktop から接続を開始したら backend の OAuth 開始 URL を開く",
-			"認可完了後に接続済みのチャンネル情報を返す",
-			"登録者監視が有効になったら dashboard に反映する",
-		}
-		if snapshot.Stage == "auth_started" {
-			guidance = []string{
-				"ブラウザ側で認可完了まで進める",
-				"desktop に戻って YouTube 状態を再確認する",
-				"接続済みになったら次は polling と overlay をつなぐ",
-			}
-		}
-		if snapshot.Connected {
-			guidance = []string{
-				"YouTube 接続は仮状態で完了しています",
-				"次の実装で token 保存とチャンネル情報取得に置き換える",
-				"desktop の更新ボタンで接続状態を再取得できる",
-			}
-		}
+
+		guidance := guidanceForStage(snapshot)
 
 		writeJSON(w, http.StatusOK, youtubeConnectionResponse{
 			Connected:     snapshot.Connected,
@@ -100,25 +132,94 @@ func NewRouter(application app.App) http.Handler {
 
 	mux.HandleFunc("GET /v1/youtube/auth/start", func(w http.ResponseWriter, r *http.Request) {
 		channelHint := strings.TrimSpace(r.URL.Query().Get("channel_hint"))
+
+		oauth := application.GetOAuth()
+		if oauth == nil {
+			renderErrorHTML(w, "OAuth が設定されていません", "デスクトップアプリの設定タブでクライアントIDとシークレットを入力してください。")
+			return
+		}
+
+		state := application.GenerateOAuthState()
 		application.StartYouTubeAuth(channelHint)
-		renderYouTubeAuthScaffold(
-			w,
-			channelHint,
-			buildURL(
-				application.Config.PublicBaseURL,
-				application.Config.YouTubeAuthCallbackPath,
-				channelHint,
-			),
-		)
+
+		authURL := oauth.AuthURL(state)
+		http.Redirect(w, r, authURL, http.StatusFound)
 	})
 
 	mux.HandleFunc("GET /v1/youtube/auth/callback", func(w http.ResponseWriter, r *http.Request) {
-		channelHint := strings.TrimSpace(r.URL.Query().Get("channel_hint"))
-		snapshot := application.CompleteYouTubeAuth(channelHint)
-		renderYouTubeAuthCallbackScaffold(w, snapshot.ChannelLabel)
+		if errParam := r.URL.Query().Get("error"); errParam != "" {
+			renderErrorHTML(w, "認可が中断されました", fmt.Sprintf("Google から返されたエラー: %s", errParam))
+			return
+		}
+
+		state := r.URL.Query().Get("state")
+		if !application.ValidateOAuthState(state) {
+			renderErrorHTML(w, "認証エラー", "state パラメータの検証に失敗しました。もう一度やり直してください。")
+			return
+		}
+
+		code := r.URL.Query().Get("code")
+		if code == "" {
+			renderErrorHTML(w, "認証エラー", "認可コードが返されませんでした。")
+			return
+		}
+
+		oauth := application.GetOAuth()
+		if oauth == nil {
+			renderErrorHTML(w, "OAuth が設定されていません", "クレデンシャルが設定されていません。")
+			return
+		}
+
+		token, err := oauth.Exchange(r.Context(), code)
+		if err != nil {
+			renderErrorHTML(w, "トークン交換に失敗", err.Error())
+			return
+		}
+
+		if err := oauth.SaveToken(token); err != nil {
+			renderErrorHTML(w, "トークン保存に失敗", err.Error())
+			return
+		}
+
+		channelTitle := ""
+		channelID := ""
+		info, err := oauth.FetchChannelInfo(r.Context())
+		if err != nil {
+			log.Printf("[subnotify] チャンネル情報取得に失敗（トークンは保存済み）: %v", err)
+			channelTitle = "Unknown Channel"
+		} else {
+			channelTitle = info.Title
+			channelID = info.ID
+		}
+
+		application.CompleteYouTubeAuth(channelTitle, channelID)
+		renderSuccessHTML(w, channelTitle)
 	})
 
 	return mux
+}
+
+func guidanceForStage(snapshot app.YouTubeConnectionSnapshot) []string {
+	switch {
+	case snapshot.Connected:
+		return []string{
+			"YouTube 接続が完了しています",
+			"登録者のポーリングを開始できます",
+			"desktop の更新ボタンで接続状態を再取得できます",
+		}
+	case snapshot.Stage == "auth_started":
+		return []string{
+			"ブラウザ側で Google 認可を完了してください",
+			"desktop に戻って YouTube 状態を再確認してください",
+			"接続済みになったら登録者ポーリングが有効になります",
+		}
+	default:
+		return []string{
+			"desktop から接続を開始してください",
+			"OAuth 開始URLを開いて Google 認可を完了してください",
+			"登録者監視が有効になったらダッシュボードに反映されます",
+		}
+	}
 }
 
 func writeJSON(w http.ResponseWriter, statusCode int, payload any) {
@@ -130,107 +231,7 @@ func writeJSON(w http.ResponseWriter, statusCode int, payload any) {
 	}
 }
 
-func renderYouTubeAuthScaffold(w http.ResponseWriter, channelHint string, callbackURL string) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(http.StatusOK)
-
-	channelLine := "未指定"
-	if channelHint != "" {
-		channelLine = channelHint
-	}
-
-	document := fmt.Sprintf(`<!doctype html>
-<html lang="ja">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Subnotify YouTube Auth</title>
-    <style>
-      :root {
-        color-scheme: light;
-        font-family: "Avenir Next", "Segoe UI", sans-serif;
-        color: #10233d;
-        background:
-          radial-gradient(circle at top left, rgba(255, 234, 210, 0.95), transparent 34%%),
-          linear-gradient(145deg, #fff4e8 0%%, #f4f8ff 48%%, #eef7f3 100%%);
-      }
-      body {
-        margin: 0;
-        min-height: 100vh;
-        display: grid;
-        place-items: center;
-        padding: 24px;
-      }
-      .card {
-        width: min(760px, 100%%);
-        padding: 32px;
-        border-radius: 28px;
-        background: rgba(255, 255, 255, 0.86);
-        border: 1px solid rgba(16, 35, 61, 0.08);
-        box-shadow: 0 18px 60px rgba(39, 62, 102, 0.12);
-      }
-      .eyebrow {
-        margin: 0 0 10px;
-        font-size: 0.75rem;
-        letter-spacing: 0.14em;
-        text-transform: uppercase;
-        color: #a8562a;
-      }
-      h1 {
-        margin: 0 0 12px;
-        font-size: clamp(2rem, 5vw, 3rem);
-        letter-spacing: -0.03em;
-      }
-      p, li {
-        color: #52637a;
-        line-height: 1.6;
-      }
-      .mono {
-        padding: 12px 14px;
-        border-radius: 16px;
-        background: rgba(16, 35, 61, 0.04);
-        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-        word-break: break-word;
-      }
-      .button {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        min-height: 46px;
-        padding: 0 18px;
-        border-radius: 14px;
-        color: #10233d;
-        background: rgba(255, 255, 255, 0.92);
-        box-shadow: 0 10px 24px rgba(12, 40, 72, 0.18);
-        font-weight: 700;
-        text-decoration: none;
-      }
-      ul {
-        padding-left: 20px;
-      }
-    </style>
-  </head>
-  <body>
-    <main class="card">
-      <p class="eyebrow">Subnotify YouTube Auth</p>
-      <h1>OAuth 開始ページの雛形です</h1>
-      <p>ここは今後 YouTube 認可フローの入口になります。まだ本認証は未実装ですが、desktop から接続導線を確認できる状態にしています。</p>
-      <p><strong>Channel Hint</strong></p>
-      <p class="mono">%s</p>
-      <ul>
-        <li>次の実装で Google OAuth の開始 URL へリダイレクトします。</li>
-        <li>認可完了後は backend が接続済みチャンネル情報を保存します。</li>
-        <li>desktop はこの結果を再取得して接続状態カードへ反映します。</li>
-      </ul>
-      <p><a class="button" href="%s">認可完了をシミュレートする</a></p>
-    </main>
-  </body>
-</html>`, html.EscapeString(channelLine), html.EscapeString(callbackURL))
-
-	_, _ = w.Write([]byte(document))
-}
-
-func renderYouTubeAuthCallbackScaffold(w http.ResponseWriter, channelLabel string) {
+func renderSuccessHTML(w http.ResponseWriter, channelTitle string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 
@@ -246,18 +247,12 @@ func renderYouTubeAuthCallbackScaffold(w http.ResponseWriter, channelLabel strin
         font-family: "Avenir Next", "Segoe UI", sans-serif;
         color: #10233d;
         background:
-          radial-gradient(circle at top left, rgba(214, 255, 227, 0.92), transparent 30%%),
-          linear-gradient(145deg, #fff8ef 0%%, #f3fbf7 48%%, #eef7ff 100%%);
+          radial-gradient(circle at top left, rgba(214, 255, 227, 0.92), transparent 30%%%%),
+          linear-gradient(145deg, #fff8ef 0%%%%, #f3fbf7 48%%%%, #eef7ff 100%%%%);
       }
-      body {
-        margin: 0;
-        min-height: 100vh;
-        display: grid;
-        place-items: center;
-        padding: 24px;
-      }
+      body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px; }
       .card {
-        width: min(760px, 100%%);
+        width: min(760px, 100%%%%);
         padding: 32px;
         border-radius: 28px;
         background: rgba(255, 255, 255, 0.88);
@@ -265,45 +260,72 @@ func renderYouTubeAuthCallbackScaffold(w http.ResponseWriter, channelLabel strin
         box-shadow: 0 18px 60px rgba(39, 62, 102, 0.12);
       }
       .pill {
-        display: inline-flex;
-        align-items: center;
-        gap: 10px;
-        min-height: 38px;
-        padding: 0 14px;
-        border-radius: 999px;
-        background: rgba(89, 212, 139, 0.14);
-        color: #1f7a46;
-        font-weight: 700;
+        display: inline-flex; align-items: center; gap: 10px;
+        min-height: 38px; padding: 0 14px; border-radius: 999px;
+        background: rgba(89, 212, 139, 0.14); color: #1f7a46; font-weight: 700;
       }
-      .dot {
-        width: 10px;
-        height: 10px;
-        border-radius: 999px;
-        background: #59d48b;
-      }
+      .dot { width: 10px; height: 10px; border-radius: 999px; background: #59d48b; }
+      p { color: #52637a; line-height: 1.6; }
       .mono {
-        padding: 12px 14px;
-        border-radius: 16px;
+        padding: 12px 14px; border-radius: 16px;
         background: rgba(16, 35, 61, 0.04);
         font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-        word-break: break-word;
-      }
-      p {
-        color: #52637a;
-        line-height: 1.6;
       }
     </style>
   </head>
   <body>
     <main class="card">
       <div class="pill"><span class="dot"></span>Connected</div>
-      <h1>YouTube 接続の仮完了ページです</h1>
-      <p>backend 側の仮状態を「接続済み」に更新しました。desktop に戻って <strong>YouTube 状態を確認</strong> または <strong>状態を更新</strong> を押すと、接続済み表示へ切り替わります。</p>
+      <h1>YouTube 接続が完了しました</h1>
+      <p>このタブは閉じて大丈夫です。desktop アプリに戻ると自動で接続済みに切り替わります。</p>
       <p><strong>Channel</strong></p>
       <p class="mono">%s</p>
     </main>
   </body>
-</html>`, html.EscapeString(channelLabel))
+</html>`, html.EscapeString(channelTitle))
+
+	_, _ = w.Write([]byte(document))
+}
+
+func renderErrorHTML(w http.ResponseWriter, title string, message string) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+
+	document := fmt.Sprintf(`<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Subnotify Error</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: "Avenir Next", "Segoe UI", sans-serif;
+        color: #10233d;
+        background: linear-gradient(145deg, #fff4e8 0%%%%, #f4f8ff 48%%%%, #eef7f3 100%%%%);
+      }
+      body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px; }
+      .card {
+        width: min(760px, 100%%%%);
+        padding: 32px;
+        border-radius: 28px;
+        background: rgba(255, 255, 255, 0.86);
+        border: 1px solid rgba(16, 35, 61, 0.08);
+        box-shadow: 0 18px 60px rgba(39, 62, 102, 0.12);
+      }
+      h1 { margin: 0 0 12px; }
+      p { color: #52637a; line-height: 1.6; }
+      .error-text { color: #b1402d; }
+    </style>
+  </head>
+  <body>
+    <main class="card">
+      <h1>%s</h1>
+      <p class="error-text">%s</p>
+      <p>desktop アプリから再度お試しください。</p>
+    </main>
+  </body>
+</html>`, html.EscapeString(title), html.EscapeString(message))
 
 	_, _ = w.Write([]byte(document))
 }

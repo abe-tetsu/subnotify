@@ -1,3 +1,8 @@
 module github.com/abe-tetsu/subnotify/server
 
-go 1.24.0
+go 1.25.0
+
+require (
+	cloud.google.com/go/compute/metadata v0.3.0 // indirect
+	golang.org/x/oauth2 v0.36.0 // indirect
+)

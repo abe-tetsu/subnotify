@@ -35,6 +35,9 @@ bin/
 cover.out
 *.test
 
+# Subnotify data directory
+.subnotify-data/
+
 # Local databases and state
 *.db
 *.sqlite

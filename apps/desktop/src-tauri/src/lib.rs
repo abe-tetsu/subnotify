@@ -74,6 +74,10 @@ struct DesktopSettings {
     api_base_url: String,
     overlay_base_url: String,
     youtube_channel_hint: String,
+    #[serde(default)]
+    youtube_client_id: String,
+    #[serde(default)]
+    youtube_client_secret: String,
 }
 
 impl Default for DesktopSettings {
@@ -83,6 +87,8 @@ impl Default for DesktopSettings {
             api_base_url: "http://localhost:8080".to_string(),
             overlay_base_url: "https://overlay.example.com/subnotify".to_string(),
             youtube_channel_hint: "".to_string(),
+            youtube_client_id: "".to_string(),
+            youtube_client_secret: "".to_string(),
         }
     }
 }
@@ -203,7 +209,48 @@ fn update_desktop_settings(
 ) -> Result<DesktopSettings, String> {
     let updated = state.update(settings);
     persist_desktop_settings(&app_handle, &updated)?;
+
+    if !updated.youtube_client_id.trim().is_empty()
+        && !updated.youtube_client_secret.trim().is_empty()
+    {
+        let _ = sync_credentials_to_backend(&updated);
+    }
+
     Ok(updated)
+}
+
+fn sync_credentials_to_backend(settings: &DesktopSettings) -> Result<(), String> {
+    let base_url = settings
+        .api_base_url
+        .trim()
+        .trim_end_matches('/')
+        .to_string();
+    if base_url.is_empty() {
+        return Err("API Base URL が未設定です。".to_string());
+    }
+
+    let client = Client::builder()
+        .timeout(Duration::from_secs(3))
+        .build()
+        .map_err(|e| format!("HTTP クライアントの作成に失敗: {e}"))?;
+
+    let url = format!("{base_url}/v1/youtube/credentials");
+    let body = serde_json::json!({
+        "clientId": settings.youtube_client_id.trim(),
+        "clientSecret": settings.youtube_client_secret.trim(),
+    });
+
+    let response = client
+        .post(&url)
+        .json(&body)
+        .send()
+        .map_err(|e| format!("クレデンシャル送信に失敗: {e}"))?;
+
+    if !response.status().is_success() {
+        return Err(format!("クレデンシャル送信がエラー (HTTP {})", response.status()));
+    }
+
+    Ok(())
 }
 
 #[tauri::command]
@@ -504,7 +551,12 @@ pub fn run() {
         .manage(desktop_settings_state)
         .setup(move |app| {
             if let Ok(Some(settings)) = load_persisted_desktop_settings(app.handle()) {
-                desktop_settings_state_for_setup.update(settings);
+                let updated = desktop_settings_state_for_setup.update(settings);
+                if !updated.youtube_client_id.trim().is_empty()
+                    && !updated.youtube_client_secret.trim().is_empty()
+                {
+                    let _ = sync_credentials_to_backend(&updated);
+                }
             }
             Ok(())
         })
