@@ -51,6 +51,21 @@ struct BackendConnectionStatus {
     message: String,
 }
 
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct YouTubeWorkspaceStatus {
+    ok: bool,
+    checked_at: String,
+    connected: bool,
+    stage: String,
+    channel_hint: String,
+    channel_label: String,
+    oauth_start_url: Option<String>,
+    last_event: String,
+    guidance: Vec<String>,
+    message: String,
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct DesktopSettings {
@@ -112,6 +127,18 @@ struct MetaResponse {
     environment: String,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct YouTubeConnectionResponse {
+    connected: bool,
+    stage: String,
+    channel_hint: String,
+    channel_label: String,
+    oauth_start_url: String,
+    last_event: String,
+    guidance: Vec<String>,
+}
+
 #[tauri::command]
 fn get_desktop_overview() -> DesktopOverview {
     DesktopOverview {
@@ -149,8 +176,8 @@ fn get_desktop_overview() -> DesktopOverview {
             },
         ],
         next_milestones: vec![
-            "desktop に YouTube 接続カードを追加する".to_string(),
-            "backend health check と YouTube 接続フローをつなぐ".to_string(),
+            "YouTube OAuth 開始ボタンと認可完了の反映を desktop につなぐ".to_string(),
+            "backend の YouTube 状態を永続化できるようにする".to_string(),
             "公開 overlay の v2 デザインを分離して作る".to_string(),
         ],
         notes: vec![
@@ -289,6 +316,126 @@ fn check_backend_connection(api_base_url: String) -> BackendConnectionStatus {
     }
 }
 
+#[tauri::command]
+fn get_youtube_workspace_status(
+    api_base_url: String,
+    youtube_channel_hint: String,
+) -> YouTubeWorkspaceStatus {
+    let base_url = api_base_url.trim().trim_end_matches('/').to_string();
+    if base_url.is_empty() {
+        return YouTubeWorkspaceStatus {
+            ok: false,
+            checked_at: now_iso8601(),
+            connected: false,
+            stage: "blocked".to_string(),
+            channel_hint: youtube_channel_hint,
+            channel_label: "API Base URL 未設定".to_string(),
+            oauth_start_url: None,
+            last_event: "backend 接続先が未設定のため確認できません。".to_string(),
+            guidance: vec![
+                "設定タブで API Base URL を入力する".to_string(),
+                "backend 接続確認が成功してから YouTube 状態を確認する".to_string(),
+            ],
+            message: "API Base URL が未設定です。".to_string(),
+        };
+    }
+
+    let client = match Client::builder().timeout(Duration::from_secs(3)).build() {
+        Ok(client) => client,
+        Err(error) => {
+            return YouTubeWorkspaceStatus {
+                ok: false,
+                checked_at: now_iso8601(),
+                connected: false,
+                stage: "error".to_string(),
+                channel_hint: youtube_channel_hint,
+                channel_label: "接続確認失敗".to_string(),
+                oauth_start_url: None,
+                last_event: "HTTP クライアントの初期化に失敗しました。".to_string(),
+                guidance: vec![],
+                message: format!("HTTP クライアントの初期化に失敗しました: {error}"),
+            };
+        }
+    };
+
+    let request_url = format!(
+        "{base_url}/v1/youtube/connection?channel_hint={}",
+        urlencoding::encode(youtube_channel_hint.trim())
+    );
+
+    let response = match client.get(&request_url).send() {
+        Ok(response) => response,
+        Err(error) => {
+            return YouTubeWorkspaceStatus {
+                ok: false,
+                checked_at: now_iso8601(),
+                connected: false,
+                stage: "error".to_string(),
+                channel_hint: youtube_channel_hint,
+                channel_label: "接続確認失敗".to_string(),
+                oauth_start_url: None,
+                last_event: "YouTube 状態 endpoint に接続できませんでした。".to_string(),
+                guidance: vec![
+                    "backend が起動しているか確認する".to_string(),
+                    "make dev で API と desktop をまとめて起動する".to_string(),
+                ],
+                message: format!("YouTube 状態 endpoint への接続に失敗しました: {error}"),
+            };
+        }
+    };
+
+    let status_code = response.status();
+    if !status_code.is_success() {
+        return YouTubeWorkspaceStatus {
+            ok: false,
+            checked_at: now_iso8601(),
+            connected: false,
+            stage: "error".to_string(),
+            channel_hint: youtube_channel_hint,
+            channel_label: "接続確認失敗".to_string(),
+            oauth_start_url: None,
+            last_event: format!("YouTube 状態 endpoint が HTTP {} を返しました。", status_code.as_u16()),
+            guidance: vec![],
+            message: format!("YouTube 状態 endpoint が失敗しました: HTTP {}", status_code.as_u16()),
+        };
+    }
+
+    match response.json::<YouTubeConnectionResponse>() {
+        Ok(payload) => {
+            let message = if payload.connected {
+                "YouTube 接続状態を取得できました。".to_string()
+            } else {
+                "YouTube 接続はまだ未完了ですが、接続フローの雛形は取得できました。".to_string()
+            };
+
+            YouTubeWorkspaceStatus {
+                ok: true,
+                checked_at: now_iso8601(),
+                connected: payload.connected,
+                stage: payload.stage,
+                channel_hint: payload.channel_hint,
+                channel_label: payload.channel_label,
+                oauth_start_url: Some(payload.oauth_start_url),
+                last_event: payload.last_event,
+                guidance: payload.guidance,
+                message,
+            }
+        }
+        Err(error) => YouTubeWorkspaceStatus {
+            ok: false,
+            checked_at: now_iso8601(),
+            connected: false,
+            stage: "error".to_string(),
+            channel_hint: youtube_channel_hint,
+            channel_label: "解析失敗".to_string(),
+            oauth_start_url: None,
+            last_event: "YouTube 状態 response を解析できませんでした。".to_string(),
+            guidance: vec![],
+            message: format!("YouTube 状態 response の解析に失敗しました: {error}"),
+        },
+    }
+}
+
 fn desktop_settings_file_path<R: Runtime>(app_handle: &AppHandle<R>) -> Result<PathBuf, String> {
     let mut dir = app_handle
         .path()
@@ -350,7 +497,8 @@ pub fn run() {
             get_desktop_overview,
             get_desktop_settings,
             update_desktop_settings,
-            check_backend_connection
+            check_backend_connection,
+            get_youtube_workspace_status
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

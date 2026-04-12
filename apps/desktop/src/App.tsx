@@ -43,6 +43,19 @@ type BackendConnectionStatus = {
   message: string;
 };
 
+type YouTubeWorkspaceStatus = {
+  ok: boolean;
+  checkedAt: string;
+  connected: boolean;
+  stage: string;
+  channelHint: string;
+  channelLabel: string;
+  oauthStartUrl: string | null;
+  lastEvent: string;
+  guidance: string[];
+  message: string;
+};
+
 type TabId = "dashboard" | "settings" | "architecture" | "roadmap";
 
 const fallbackOverview: DesktopOverview = {
@@ -81,8 +94,8 @@ const fallbackOverview: DesktopOverview = {
     },
   ],
   nextMilestones: [
-    "desktop に YouTube 接続状態カードを実装する",
-    "backend health check と YouTube 接続フローをつなぐ",
+    "YouTube OAuth 開始ボタンと認可完了の反映を desktop につなぐ",
+    "backend の YouTube 状態を永続化できるようにする",
     "overlay の v2 デザインを公開 URL 前提で組み直す",
   ],
   notes: [
@@ -108,6 +121,22 @@ const fallbackBackendConnectionStatus: BackendConnectionStatus = {
   message: "まだ接続確認していません。",
 };
 
+const fallbackYouTubeWorkspaceStatus: YouTubeWorkspaceStatus = {
+  ok: false,
+  checkedAt: "",
+  connected: false,
+  stage: "idle",
+  channelHint: "",
+  channelLabel: "未確認",
+  oauthStartUrl: null,
+  lastEvent: "まだ YouTube 状態を確認していません。",
+  guidance: [
+    "API Base URL を設定して backend 接続確認を先に済ませる",
+    "チャンネルのヒントを入れて YouTube 状態を確認する",
+  ],
+  message: "まだ YouTube 状態を確認していません。",
+};
+
 function statusClassName(state: ServiceStatus["state"]) {
   switch (state) {
     case "ready":
@@ -131,10 +160,14 @@ function App() {
   const [backendConnectionStatus, setBackendConnectionStatus] = useState<BackendConnectionStatus>(
     fallbackBackendConnectionStatus,
   );
+  const [youtubeWorkspaceStatus, setYouTubeWorkspaceStatus] = useState<YouTubeWorkspaceStatus>(
+    fallbackYouTubeWorkspaceStatus,
+  );
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isLoadingSettings, setIsLoadingSettings] = useState(true);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [isCheckingBackend, setIsCheckingBackend] = useState(false);
+  const [isCheckingYouTube, setIsCheckingYouTube] = useState(false);
   const [settingsMessage, setSettingsMessage] = useState<string | null>(null);
   const [lastError, setLastError] = useState<string | null>(null);
 
@@ -197,8 +230,13 @@ function App() {
           const status = await invoke<BackendConnectionStatus>("check_backend_connection", {
             apiBaseUrl: nextSettings.apiBaseUrl,
           });
+          const youtubeStatus = await invoke<YouTubeWorkspaceStatus>("get_youtube_workspace_status", {
+            apiBaseUrl: nextSettings.apiBaseUrl,
+            youtubeChannelHint: nextSettings.youtubeChannelHint,
+          });
           if (isMounted) {
             setBackendConnectionStatus(status);
+            setYouTubeWorkspaceStatus(youtubeStatus);
           }
         }
       } catch (error) {
@@ -228,11 +266,16 @@ function App() {
       const nextConnectionStatus = await invoke<BackendConnectionStatus>("check_backend_connection", {
         apiBaseUrl: nextSettings.apiBaseUrl,
       });
+      const nextYouTubeStatus = await invoke<YouTubeWorkspaceStatus>("get_youtube_workspace_status", {
+        apiBaseUrl: nextSettings.apiBaseUrl,
+        youtubeChannelHint: nextSettings.youtubeChannelHint,
+      });
 
       setOverview(nextOverview);
       setSettings(nextSettings);
       setSavedSettings(nextSettings);
       setBackendConnectionStatus(nextConnectionStatus);
+      setYouTubeWorkspaceStatus(nextYouTubeStatus);
       setLastError(null);
       setSettingsMessage("desktop 設定と状態を再取得しました。");
     } catch (error) {
@@ -273,6 +316,25 @@ function App() {
       setLastError(`backend 接続確認に失敗しました: ${String(error)}`);
     } finally {
       setIsCheckingBackend(false);
+    }
+  };
+
+  const handleCheckYouTubeWorkspace = async (
+    apiBaseUrl: string,
+    youtubeChannelHint: string,
+  ) => {
+    setIsCheckingYouTube(true);
+    try {
+      const status = await invoke<YouTubeWorkspaceStatus>("get_youtube_workspace_status", {
+        apiBaseUrl,
+        youtubeChannelHint,
+      });
+      setYouTubeWorkspaceStatus(status);
+      setLastError(null);
+    } catch (error) {
+      setLastError(`YouTube 状態の取得に失敗しました: ${String(error)}`);
+    } finally {
+      setIsCheckingYouTube(false);
     }
   };
 
@@ -425,6 +487,72 @@ function App() {
               </div>
             </article>
 
+            <article className="panel-card wide-card">
+              <p className="panel-label">YouTube Workspace</p>
+              <h2>YouTube 接続フローの準備状況</h2>
+              <div className="status-row">
+                <span
+                  className={
+                    youtubeWorkspaceStatus.connected
+                      ? "status-dot is-ready"
+                      : youtubeWorkspaceStatus.ok
+                        ? "status-dot is-planning"
+                        : "status-dot"
+                  }
+                />
+                <span className="status-inline-text">
+                  {youtubeWorkspaceStatus.connected
+                    ? "接続済み"
+                    : youtubeWorkspaceStatus.ok
+                      ? "接続前"
+                      : "未確認 / 失敗"}
+                </span>
+              </div>
+              <p className="panel-text">{youtubeWorkspaceStatus.message}</p>
+              <div className="stack-list compact-stack">
+                <div className="stack-item">
+                  <strong>Channel</strong>
+                  <p className="panel-text">{youtubeWorkspaceStatus.channelLabel}</p>
+                </div>
+                <div className="stack-item">
+                  <strong>Stage</strong>
+                  <p className="panel-text">{youtubeWorkspaceStatus.stage}</p>
+                </div>
+                <div className="stack-item">
+                  <strong>OAuth Start URL</strong>
+                  <p className="panel-text mono-text">
+                    {youtubeWorkspaceStatus.oauthStartUrl || "-"}
+                  </p>
+                </div>
+                <div className="stack-item">
+                  <strong>Last Event</strong>
+                  <p className="panel-text">{youtubeWorkspaceStatus.lastEvent}</p>
+                </div>
+              </div>
+              <div className="stack-list">
+                {youtubeWorkspaceStatus.guidance.map((line) => (
+                  <div className="stack-item" key={line}>
+                    <p className="panel-text">{line}</p>
+                  </div>
+                ))}
+              </div>
+              <div className="action-row">
+                <button
+                  className={`secondary-button ${isCheckingYouTube ? "is-disabled" : ""}`}
+                  disabled={isCheckingYouTube}
+                  onClick={() =>
+                    void handleCheckYouTubeWorkspace(
+                      savedSettings.apiBaseUrl,
+                      savedSettings.youtubeChannelHint,
+                    )
+                  }
+                  type="button"
+                >
+                  {isCheckingYouTube ? "確認中..." : "YouTube 状態を確認"}
+                </button>
+              </div>
+            </article>
+
             <article className="panel-card accent-card wide-card">
               <p className="panel-label">通知モード</p>
               <h2>v2 で切り替える表示ルール</h2>
@@ -519,7 +647,7 @@ function App() {
                     value={settings.youtubeChannelHint}
                   />
                   <p className="field-help">
-                    チャンネル ID やハンドルを仮置きするメモ欄です。
+                    チャンネル ID やハンドルを仮置きするメモ欄です。YouTube 状態確認にも使います。
                   </p>
                 </label>
               </div>
@@ -543,6 +671,19 @@ function App() {
                 >
                   {isCheckingBackend ? "確認中..." : "この URL で接続確認"}
                 </button>
+                <button
+                  className={`secondary-button ${isCheckingYouTube ? "is-disabled" : ""}`}
+                  disabled={isCheckingYouTube}
+                  onClick={() =>
+                    void handleCheckYouTubeWorkspace(
+                      settings.apiBaseUrl,
+                      settings.youtubeChannelHint,
+                    )
+                  }
+                  type="button"
+                >
+                  {isCheckingYouTube ? "確認中..." : "YouTube 状態を確認"}
+                </button>
               </div>
 
               <p className={settingsMessage?.includes("失敗") ? "error-text" : "field-help"}>
@@ -555,6 +696,26 @@ function App() {
               <p className={backendConnectionStatus.ok ? "field-help" : "error-text"}>
                 {backendConnectionStatus.message}
               </p>
+              <p className={youtubeWorkspaceStatus.ok ? "field-help" : "error-text"}>
+                {youtubeWorkspaceStatus.message}
+              </p>
+            </article>
+
+            <article className="panel-card accent-card">
+              <p className="panel-label">YouTube Flow</p>
+              <h2>接続フローの見取り図</h2>
+              <div className="timeline-list">
+                {[
+                  "desktop で API Base URL と Channel Hint を確認する",
+                  "backend の YouTube 状態 endpoint から OAuth 開始 URL を取得する",
+                  "次の実装で OAuth 開始ボタンと認可完了後の反映をつなぐ",
+                ].map((line, index) => (
+                  <div className="timeline-item" key={line}>
+                    <span className="timeline-index">{index + 1}</span>
+                    <p className="panel-text">{line}</p>
+                  </div>
+                ))}
+              </div>
             </article>
           </section>
         ) : null}

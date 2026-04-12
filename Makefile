@@ -48,6 +48,7 @@ dev: desktop-install
 
 stop:
 	-@pkill -f 'go run ./cmd/api' >/dev/null 2>&1 || true
+	-@pkill -f 'exe/api' >/dev/null 2>&1 || true
 	-@pkill -f 'npm run tauri dev' >/dev/null 2>&1 || true
 	-@pkill -f 'subnotify/apps/desktop.*vite' >/dev/null 2>&1 || true
 	-@pkill -f 'subnotify/apps/desktop' >/dev/null 2>&1 || true

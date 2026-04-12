@@ -12,6 +12,7 @@ v2 project workspace for the successor to `subscreen`.
   - dashboard
   - settings
   - backend connectivity check
+  - YouTube connection workspace status
   - architecture notes
   - roadmap
 - Frontend build, Rust check, and Go tests are passing.
@@ -34,12 +35,15 @@ v2 project workspace for the successor to `subscreen`.
   - adjusted `make stop` so it quietly handles lingering local dev processes
   - added desktop-to-backend connectivity checks using `/health` and `/v1/meta`
   - improved `make dev` so it can start the local API if needed and then launch the desktop app from a single terminal
+  - added a backend YouTube connection status scaffold endpoint at `/v1/youtube/connection`
+  - added a desktop YouTube workspace card and status check flow
+  - expanded `make stop` so it also cleans up the compiled local Go API process left by `go run`
   - confirmed `npm run build`, `cargo check`, and `go test ./...` pass
 
 - In progress:
   - defining the v2 desktop control panel shape
   - refining the separation between desktop, overlay, and Go backend responsibilities
-  - preparing the desktop app to connect to the real YouTube/auth backend flow
+  - preparing the desktop app to connect to the real YouTube OAuth backend flow
 
 - Not started yet:
   - public overlay frontend
@@ -57,16 +61,17 @@ v2 project workspace for the successor to `subscreen`.
 ## TODO
 
 - Desktop
-  - add YouTube connection UI
   - add overlay preview URL helpers
   - add a clearer onboarding flow for first-time setup
   - surface backend auth/channel connection state in the desktop app
+  - wire the YouTube OAuth start button and completion callback into the desktop app
 
 - Backend
   - decide storage strategy for channel state and notification history
   - add channel and auth endpoints
   - add structured logging and request logging
   - add real worker jobs for subscriber polling
+  - persist YouTube connection state instead of returning scaffold data
 
 - YouTube integration
   - implement OAuth flow on the backend side
@@ -137,6 +142,25 @@ make dev
 4. Click `この URL で接続確認`.
 5. Confirm the message shows backend connection success.
 6. Open the `ダッシュボード` tab and confirm the backend health card shows the service and environment.
+
+## Verify YouTube workspace status from the desktop app
+
+1. Start the local API and the desktop app together:
+
+```bash
+cd /Users/abetetsuya/app/subnotify
+make dev
+```
+
+2. Open the `設定` tab.
+3. Confirm `API Base URL` is `http://localhost:8080`.
+4. Optionally set `YouTube Channel Hint` to something like `@your-channel`.
+5. Click `YouTube 状態を確認`.
+6. Confirm the message says the YouTube connection is not completed yet but the flow data was fetched.
+7. Open the `ダッシュボード` tab and confirm the `YouTube Workspace` card shows:
+   - `Stage` as `not_connected`
+   - `OAuth Start URL` as `http://localhost:8080/v1/youtube/auth/start`
+   - the channel hint you entered, if any
 
 ## Secret handling
 
