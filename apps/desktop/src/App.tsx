@@ -155,15 +155,23 @@ function App() {
         setSavedSettings(nextSettings);
 
         if (nextSettings.apiBaseUrl.trim() !== "") {
-          const connStatus = await invoke<BackendConnectionStatus>("check_backend_connection", {
-            apiBaseUrl: nextSettings.apiBaseUrl,
-          });
-          const ytStatus = await fetchYouTubeWorkspaceStatus(
-            nextSettings.apiBaseUrl,
-          );
-          if (isMounted) {
-            setBackendConnectionStatus(connStatus);
-            setYouTubeWorkspaceStatus(ytStatus);
+          try {
+            const connStatus = await invoke<BackendConnectionStatus>("check_backend_connection", {
+              apiBaseUrl: nextSettings.apiBaseUrl,
+            });
+            if (isMounted) setBackendConnectionStatus(connStatus);
+
+            if (connStatus.ok) {
+              // クレデンシャルがあればバックエンドに送信（コールドスタート対策）
+              if (nextSettings.youtubeClientId.trim() && nextSettings.youtubeClientSecret.trim()) {
+                await invoke("update_desktop_settings", { settings: nextSettings });
+              }
+
+              const ytStatus = await fetchYouTubeWorkspaceStatus(nextSettings.apiBaseUrl);
+              if (isMounted) setYouTubeWorkspaceStatus(ytStatus);
+            }
+          } catch (_e) {
+            // バックエンド接続失敗は致命的ではない
           }
         }
       } catch (error) {
@@ -276,8 +284,18 @@ function App() {
   };
 
   const handleStartOAuth = async () => {
+    if (!savedSettings.youtubeClientId.trim() || !savedSettings.youtubeClientSecret.trim()) {
+      setLastError("設定タブで YouTube OAuth Client ID と Client Secret を入力して保存してください。");
+      return;
+    }
+
     setIsOpeningOAuthPage(true);
+    setLastError(null);
     try {
+      // クレデンシャルをバックエンドに送信（コールドスタート対策）
+      await invoke("check_backend_connection", { apiBaseUrl: savedSettings.apiBaseUrl });
+      await invoke("update_desktop_settings", { settings: savedSettings });
+
       const status = await fetchYouTubeWorkspaceStatus(
         savedSettings.apiBaseUrl,
       );
@@ -286,6 +304,8 @@ function App() {
       if (status.oauthStartUrl) {
         setIsAwaitingOAuthCompletion(true);
         await openUrl(status.oauthStartUrl);
+      } else {
+        setLastError("OAuth 開始 URL を取得できませんでした。API Base URL と OAuth 設定を確認してください。");
       }
     } catch (error) {
       setLastError(`OAuth の開始に失敗: ${String(error)}`);
@@ -400,9 +420,15 @@ function App() {
                   {isOpeningOAuthPage ? "ログイン開始中..." : youtubeWorkspaceStatus.connected ? "接続済み" : "YouTube に接続"}
                 </button>
               </div>
-              <p className="hint-text">
-                Google のログイン画面が開きます。許可するとチャンネル情報が取得されます。
-              </p>
+              {!savedSettings.youtubeClientId.trim() || !savedSettings.youtubeClientSecret.trim() ? (
+                <p className="error-text">
+                  設定タブで YouTube OAuth Client ID と Client Secret を入力して保存してください。
+                </p>
+              ) : (
+                <p className="hint-text">
+                  Google のログイン画面が開きます。許可するとチャンネル情報が取得されます。
+                </p>
+              )}
               {youtubeWorkspaceStatus.lastEvent ? (
                 <p className="hint-text">{youtubeWorkspaceStatus.lastEvent}</p>
               ) : null}
