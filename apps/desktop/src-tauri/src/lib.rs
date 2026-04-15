@@ -3,7 +3,6 @@ use serde::{Deserialize, Serialize};
 use std::{
     fs,
     path::PathBuf,
-    process::{Child, Command},
     sync::{Arc, Mutex},
     time::{Duration, SystemTime},
 };
@@ -181,44 +180,6 @@ impl DesktopSettingsState {
     }
 }
 
-struct WorkerProcessState {
-    inner: Arc<Mutex<Option<Child>>>,
-}
-
-impl WorkerProcessState {
-    fn new() -> Self {
-        Self {
-            inner: Arc::new(Mutex::new(None)),
-        }
-    }
-
-    fn is_running(&self) -> bool {
-        let mut guard = self.inner.lock().expect("worker process lock poisoned");
-        if let Some(child) = guard.as_mut() {
-            match child.try_wait() {
-                Ok(Some(_)) => {
-                    *guard = None;
-                    false
-                }
-                Ok(None) => true,
-                Err(_) => {
-                    *guard = None;
-                    false
-                }
-            }
-        } else {
-            false
-        }
-    }
-
-    fn stop(&self) {
-        let mut guard = self.inner.lock().expect("worker process lock poisoned");
-        if let Some(mut child) = guard.take() {
-            let _ = child.kill();
-            let _ = child.wait();
-        }
-    }
-}
 
 #[derive(Deserialize)]
 struct HealthResponse {
@@ -788,79 +749,107 @@ struct WorkerStatus {
     message: String,
 }
 
-#[tauri::command]
-fn get_worker_status(state: State<'_, WorkerProcessState>) -> WorkerStatus {
-    let running = state.is_running();
-    WorkerStatus {
-        running,
-        message: if running {
-            "ポーリング実行中".to_string()
-        } else {
-            "停止中".to_string()
-        },
+#[derive(Deserialize)]
+struct PollingApiResponse {
+    running: bool,
+    message: String,
+}
+
+fn workspace_slug(settings: &DesktopSettings) -> String {
+    let w = settings
+        .workspace_label
+        .trim()
+        .replace(' ', "-")
+        .to_lowercase();
+    if w.is_empty() {
+        "default-workspace".to_string()
+    } else {
+        w
     }
 }
 
 #[tauri::command]
-fn start_worker(
-    settings_state: State<'_, DesktopSettingsState>,
-    worker_state: State<'_, WorkerProcessState>,
-) -> WorkerStatus {
-    if worker_state.is_running() {
-        return WorkerStatus {
-            running: true,
-            message: "すでに実行中です".to_string(),
-        };
+fn get_worker_status(state: State<'_, DesktopSettingsState>) -> WorkerStatus {
+    let settings = state.snapshot();
+    let base_url = settings.api_base_url.trim().trim_end_matches('/').to_string();
+    if base_url.is_empty() {
+        return WorkerStatus { running: false, message: "API Base URL が未設定です。".to_string() };
     }
 
-    let settings = settings_state.snapshot();
-    let workspace = {
-        let w = settings
-            .workspace_label
-            .trim()
-            .replace(' ', "-")
-            .to_lowercase();
-        if w.is_empty() {
-            "default-workspace".to_string()
-        } else {
-            w
-        }
+    let workspace = workspace_slug(&settings);
+    let client = match Client::builder().timeout(Duration::from_secs(5)).build() {
+        Ok(c) => c,
+        Err(_) => return WorkerStatus { running: false, message: "停止中".to_string() },
     };
 
-    let api_url = settings.api_base_url.trim().trim_end_matches('/').to_string();
-
-    let result = Command::new("go")
-        .args(["run", "./cmd/worker"])
-        .current_dir("/Users/abetetsuya/app/subnotify/server")
-        .env("SUBNOTIFY_NOTIFY_API_URL", &api_url)
-        .env("SUBNOTIFY_WORKSPACE", &workspace)
-        .spawn();
-
-    match result {
-        Ok(child) => {
-            let mut guard = worker_state
-                .inner
-                .lock()
-                .expect("worker process lock poisoned");
-            *guard = Some(child);
-            WorkerStatus {
-                running: true,
-                message: format!("ポーリング開始 (workspace: {workspace})"),
+    let url = format!("{base_url}/v1/polling/{workspace}/status");
+    match client.get(&url).send() {
+        Ok(response) => {
+            if let Ok(body) = response.json::<PollingApiResponse>() {
+                WorkerStatus { running: body.running, message: body.message }
+            } else {
+                WorkerStatus { running: false, message: "停止中".to_string() }
             }
         }
-        Err(error) => WorkerStatus {
-            running: false,
-            message: format!("ワーカーの起動に失敗: {error}"),
-        },
+        Err(_) => WorkerStatus { running: false, message: "API に接続できません".to_string() },
     }
 }
 
 #[tauri::command]
-fn stop_worker(state: State<'_, WorkerProcessState>) -> WorkerStatus {
-    state.stop();
-    WorkerStatus {
-        running: false,
-        message: "ポーリングを停止しました".to_string(),
+fn start_worker(state: State<'_, DesktopSettingsState>) -> WorkerStatus {
+    let settings = state.snapshot();
+    let base_url = settings.api_base_url.trim().trim_end_matches('/').to_string();
+    if base_url.is_empty() {
+        return WorkerStatus { running: false, message: "API Base URL が未設定です。".to_string() };
+    }
+
+    let workspace = workspace_slug(&settings);
+    let client = match Client::builder().timeout(Duration::from_secs(5)).build() {
+        Ok(c) => c,
+        Err(e) => return WorkerStatus { running: false, message: format!("HTTP クライアント作成失敗: {e}") },
+    };
+
+    let url = format!("{base_url}/v1/polling/{workspace}/start");
+    let body = serde_json::json!({
+        "intervalSec": settings.polling_interval_sec,
+    });
+
+    match client.post(&url).json(&body).send() {
+        Ok(response) => {
+            if let Ok(body) = response.json::<PollingApiResponse>() {
+                WorkerStatus { running: body.running, message: body.message }
+            } else {
+                WorkerStatus { running: false, message: "レスポンスの解析に失敗".to_string() }
+            }
+        }
+        Err(e) => WorkerStatus { running: false, message: format!("ポーリング開始に失敗: {e}") },
+    }
+}
+
+#[tauri::command]
+fn stop_worker(state: State<'_, DesktopSettingsState>) -> WorkerStatus {
+    let settings = state.snapshot();
+    let base_url = settings.api_base_url.trim().trim_end_matches('/').to_string();
+    if base_url.is_empty() {
+        return WorkerStatus { running: false, message: "API Base URL が未設定です。".to_string() };
+    }
+
+    let workspace = workspace_slug(&settings);
+    let client = match Client::builder().timeout(Duration::from_secs(5)).build() {
+        Ok(c) => c,
+        Err(_) => return WorkerStatus { running: false, message: "停止しました".to_string() },
+    };
+
+    let url = format!("{base_url}/v1/polling/{workspace}/stop");
+    match client.post(&url).send() {
+        Ok(response) => {
+            if let Ok(body) = response.json::<PollingApiResponse>() {
+                WorkerStatus { running: body.running, message: body.message }
+            } else {
+                WorkerStatus { running: false, message: "停止しました".to_string() }
+            }
+        }
+        Err(_) => WorkerStatus { running: false, message: "停止しました".to_string() },
     }
 }
 
@@ -933,7 +922,6 @@ pub fn run() {
             }
             Ok(())
         })
-        .manage(WorkerProcessState::new())
         .invoke_handler(tauri::generate_handler![
             get_desktop_overview,
             get_desktop_settings,

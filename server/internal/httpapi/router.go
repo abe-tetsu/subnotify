@@ -53,13 +53,18 @@ type setCredentialsResponse struct {
 
 func NewRouter(application *app.App, opts ...any) http.Handler {
 	var broker *notify.Broker
+	var store *notify.Store
+	var poller *notify.Poller
 	for _, opt := range opts {
 		switch v := opt.(type) {
 		case *notify.Broker:
 			broker = v
+		case *notify.Store:
+			store = v
+		case *notify.Poller:
+			poller = v
 		}
 	}
-	_ = opts // allow unused Store to be passed without error
 
 	mux := http.NewServeMux()
 
@@ -342,6 +347,84 @@ func NewRouter(application *app.App, opts ...any) http.Handler {
 				flusher.Flush()
 			}
 		}
+	})
+
+	mux.HandleFunc("POST /v1/polling/{workspace}/start", func(w http.ResponseWriter, r *http.Request) {
+		if poller == nil || broker == nil || store == nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "poller not configured"})
+			return
+		}
+
+		workspace := r.PathValue("workspace")
+		if workspace == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "workspace is required"})
+			return
+		}
+
+		oauth := application.GetOAuth()
+		if oauth == nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "OAuth が設定されていません"})
+			return
+		}
+
+		var req struct {
+			IntervalSec int `json:"intervalSec"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		if req.IntervalSec <= 0 {
+			req.IntervalSec = 30
+		}
+
+		poller.Start(workspace, oauth, store, broker, req.IntervalSec)
+
+		log.Printf("polling started for workspace %s (interval: %ds)", workspace, req.IntervalSec)
+		writeJSON(w, http.StatusOK, map[string]any{
+			"ok":      true,
+			"running": true,
+			"message": fmt.Sprintf("ポーリング開始 (workspace: %s, 間隔: %d秒)", workspace, req.IntervalSec),
+		})
+	})
+
+	mux.HandleFunc("POST /v1/polling/{workspace}/stop", func(w http.ResponseWriter, r *http.Request) {
+		if poller == nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "poller not configured"})
+			return
+		}
+
+		workspace := r.PathValue("workspace")
+		if workspace == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "workspace is required"})
+			return
+		}
+
+		poller.Stop(workspace)
+
+		log.Printf("polling stopped for workspace %s", workspace)
+		writeJSON(w, http.StatusOK, map[string]any{
+			"ok":      true,
+			"running": false,
+			"message": "ポーリングを停止しました",
+		})
+	})
+
+	mux.HandleFunc("GET /v1/polling/{workspace}/status", func(w http.ResponseWriter, r *http.Request) {
+		if poller == nil {
+			writeJSON(w, http.StatusOK, map[string]any{"running": false, "message": "停止中"})
+			return
+		}
+
+		workspace := r.PathValue("workspace")
+		running := poller.IsRunning(workspace)
+
+		writeJSON(w, http.StatusOK, map[string]any{
+			"running": running,
+			"message": func() string {
+				if running {
+					return "ポーリング実行中"
+				}
+				return "停止中"
+			}(),
+		})
 	})
 
 	return corsMiddleware(mux)

@@ -32,10 +32,11 @@ func main() {
 	application := app.New(cfg, oauth)
 	eventStore := notify.NewStore(cfg.DataDir)
 	eventBroker := notify.NewBroker()
+	eventPoller := notify.NewPoller()
 
 	server := &http.Server{
 		Addr:              cfg.APIListenAddr,
-		Handler:           httpapi.NewRouter(application, eventStore, eventBroker),
+		Handler:           httpapi.NewRouter(application, eventStore, eventBroker, eventPoller),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
