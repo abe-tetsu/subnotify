@@ -6,13 +6,16 @@ import (
 	"fmt"
 	"html"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
 
 	"github.com/abe-tetsu/subnotify/server/internal/app"
+	"github.com/abe-tetsu/subnotify/server/internal/auth"
 	"github.com/abe-tetsu/subnotify/server/internal/notify"
+	usersettings "github.com/abe-tetsu/subnotify/server/internal/store"
 	"github.com/abe-tetsu/subnotify/server/internal/youtube"
 )
 
@@ -53,18 +56,25 @@ type setCredentialsResponse struct {
 
 func NewRouter(application *app.App, opts ...any) http.Handler {
 	var broker *notify.Broker
-	var store *notify.Store
+	var eventStore *notify.Store
 	var poller *notify.Poller
+	var sessionStore *auth.SessionStore
+	var settingsStore *usersettings.SettingsStore
 	for _, opt := range opts {
 		switch v := opt.(type) {
 		case *notify.Broker:
 			broker = v
 		case *notify.Store:
-			store = v
+			eventStore = v
 		case *notify.Poller:
 			poller = v
+		case *auth.SessionStore:
+			sessionStore = v
+		case *usersettings.SettingsStore:
+			settingsStore = v
 		}
 	}
+	_ = eventStore // kept for future use
 
 	mux := http.NewServeMux()
 
@@ -208,6 +218,39 @@ func NewRouter(application *app.App, opts ...any) http.Handler {
 		}
 
 		application.CompleteYouTubeAuth(channelTitle, channelID)
+
+		// セッション作成（Firestore 有効時のみ）
+		if sessionStore != nil {
+			userInfo, err := oauth.FetchGoogleUserInfoWithToken(r.Context(), token)
+			if err != nil {
+				log.Printf("[subnotify] Google ユーザー情報取得に失敗: %v", err)
+				renderErrorHTML(w, "ユーザー情報取得に失敗", err.Error())
+				return
+			}
+
+			session, err := sessionStore.Create(r.Context(), userInfo.ID, userInfo.Email, userInfo.Name)
+			if err != nil {
+				log.Printf("[subnotify] セッション作成に失敗: %v", err)
+				renderErrorHTML(w, "セッション作成に失敗", err.Error())
+				return
+			}
+
+			http.SetCookie(w, &http.Cookie{
+				Name:     auth.SessionCookieName,
+				Value:    session.Token,
+				Path:     "/",
+				Domain:   cookieDomain(application.Config.ConsoleBaseURL),
+				MaxAge:   int(auth.SessionDuration.Seconds()),
+				HttpOnly: true,
+				Secure:   true,
+				SameSite: http.SameSiteLaxMode,
+			})
+
+			redirectURL := strings.TrimRight(application.Config.ConsoleBaseURL, "/") + "/?auth=ok"
+			http.Redirect(w, r, redirectURL, http.StatusFound)
+			return
+		}
+
 		renderSuccessHTML(w, channelTitle)
 	})
 
@@ -350,7 +393,7 @@ func NewRouter(application *app.App, opts ...any) http.Handler {
 	})
 
 	mux.HandleFunc("POST /v1/polling/{workspace}/start", func(w http.ResponseWriter, r *http.Request) {
-		if poller == nil || broker == nil || store == nil {
+		if poller == nil || broker == nil || eventStore == nil {
 			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "poller not configured"})
 			return
 		}
@@ -375,7 +418,7 @@ func NewRouter(application *app.App, opts ...any) http.Handler {
 			req.IntervalSec = 30
 		}
 
-		poller.Start(workspace, oauth, store, broker, req.IntervalSec)
+		poller.Start(workspace, oauth, eventStore, broker, req.IntervalSec)
 
 		log.Printf("polling started for workspace %s (interval: %ds)", workspace, req.IntervalSec)
 		writeJSON(w, http.StatusOK, map[string]any{
@@ -427,7 +470,84 @@ func NewRouter(application *app.App, opts ...any) http.Handler {
 		})
 	})
 
-	return corsMiddleware(mux)
+	// /v1/user/* エンドポイント（Firestore 有効時のみ）
+	if sessionStore != nil && settingsStore != nil {
+		mux.HandleFunc("GET /v1/user/me", func(w http.ResponseWriter, r *http.Request) {
+			session := getSessionFromRequest(r, sessionStore)
+			if session == nil {
+				writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]any{
+				"googleUserId": session.GoogleUserID,
+				"email":        session.Email,
+				"name":         session.Name,
+			})
+		})
+
+		mux.HandleFunc("GET /v1/user/settings", func(w http.ResponseWriter, r *http.Request) {
+			session := getSessionFromRequest(r, sessionStore)
+			if session == nil {
+				writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+				return
+			}
+
+			settings, err := settingsStore.Load(r.Context(), session.GoogleUserID)
+			if err != nil {
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+				return
+			}
+
+			if settings == nil {
+				writeJSON(w, http.StatusOK, map[string]any{"settings": nil})
+				return
+			}
+
+			writeJSON(w, http.StatusOK, map[string]any{"settings": settings})
+		})
+
+		mux.HandleFunc("PUT /v1/user/settings", func(w http.ResponseWriter, r *http.Request) {
+			session := getSessionFromRequest(r, sessionStore)
+			if session == nil {
+				writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+				return
+			}
+
+			var settings usersettings.UserSettings
+			if err := json.NewDecoder(r.Body).Decode(&settings); err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid body"})
+				return
+			}
+
+			if err := settingsStore.Save(r.Context(), session.GoogleUserID, settings); err != nil {
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+				return
+			}
+
+			writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+		})
+
+		mux.HandleFunc("POST /v1/user/logout", func(w http.ResponseWriter, r *http.Request) {
+			cookie, err := r.Cookie(auth.SessionCookieName)
+			if err == nil {
+				_ = sessionStore.Delete(r.Context(), cookie.Value)
+			}
+
+			http.SetCookie(w, &http.Cookie{
+				Name:     auth.SessionCookieName,
+				Value:    "",
+				Path:     "/",
+				Domain:   cookieDomain(application.Config.ConsoleBaseURL),
+				MaxAge:   -1,
+				HttpOnly: true,
+				Secure:   true,
+				SameSite: http.SameSiteLaxMode,
+			})
+			writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+		})
+	}
+
+	return corsMiddleware(mux, application.Config.ConsoleBaseURL)
 }
 
 func guidanceForStage(snapshot app.YouTubeConnectionSnapshot) []string {
@@ -453,11 +573,60 @@ func guidanceForStage(snapshot app.YouTubeConnectionSnapshot) []string {
 	}
 }
 
-func corsMiddleware(next http.Handler) http.Handler {
+func cookieDomain(consoleBaseURL string) string {
+	// https://console.abetetsu.net → abetetsu.net
+	// http://localhost:1420 → "" (Cookie Domain 省略でホスト限定)
+	u, err := url.Parse(strings.TrimRight(consoleBaseURL, "/"))
+	if err != nil {
+		return ""
+	}
+	host := u.Hostname()
+	if host == "" || host == "localhost" || net.ParseIP(host) != nil {
+		return ""
+	}
+	// 親ドメインを返す: console.abetetsu.net → abetetsu.net
+	parts := strings.Split(host, ".")
+	if len(parts) >= 2 {
+		return strings.Join(parts[len(parts)-2:], ".")
+	}
+	return host
+}
+
+func getSessionFromRequest(r *http.Request, store *auth.SessionStore) *auth.Session {
+	cookie, err := r.Cookie(auth.SessionCookieName)
+	if err != nil || cookie.Value == "" {
+		return nil
+	}
+	session, err := store.Validate(r.Context(), cookie.Value)
+	if err != nil || session == nil {
+		return nil
+	}
+	return session
+}
+
+func corsMiddleware(next http.Handler, consoleBaseURL string) http.Handler {
+	allowedOrigins := map[string]bool{
+		"http://localhost:1420": true,
+		"http://localhost:5173": true,
+		"http://localhost:4173": true,
+		"http://localhost:4174": true,
+	}
+	consoleBaseURL = strings.TrimRight(consoleBaseURL, "/")
+	if consoleBaseURL != "" {
+		allowedOrigins[consoleBaseURL] = true
+	}
+
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		origin := r.Header.Get("Origin")
+		if allowedOrigins[origin] {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
+		} else {
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+		}
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		w.Header().Set("Vary", "Origin")
 
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)

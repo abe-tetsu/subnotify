@@ -1,10 +1,69 @@
-// API 通信層
+// API 通信層（Cookie ベース認証）
 
 import type { ConsoleSettings } from "./storage";
 import { workspaceSlug } from "./storage";
 
 function trimSlash(url: string): string {
   return url.trim().replace(/\/+$/, "");
+}
+
+// credentials: 'include' で Cookie を送信
+const defaultInit: RequestInit = { credentials: "include" };
+
+export type Me = {
+  googleUserId: string;
+  email: string;
+  name: string;
+};
+
+export async function getMe(apiBaseUrl: string): Promise<Me | null> {
+  const base = trimSlash(apiBaseUrl);
+  if (!base) return null;
+  try {
+    const res = await fetch(`${base}/v1/user/me`, defaultInit);
+    if (res.status === 401) return null;
+    if (!res.ok) return null;
+    return (await res.json()) as Me;
+  } catch {
+    return null;
+  }
+}
+
+export async function logout(apiBaseUrl: string): Promise<void> {
+  const base = trimSlash(apiBaseUrl);
+  if (!base) return;
+  try {
+    await fetch(`${base}/v1/user/logout`, { ...defaultInit, method: "POST" });
+  } catch { /* ignore */ }
+}
+
+export async function loadUserSettings(apiBaseUrl: string): Promise<ConsoleSettings | null> {
+  const base = trimSlash(apiBaseUrl);
+  if (!base) return null;
+  try {
+    const res = await fetch(`${base}/v1/user/settings`, defaultInit);
+    if (!res.ok) return null;
+    const body = await res.json() as { settings: ConsoleSettings | null };
+    return body.settings;
+  } catch {
+    return null;
+  }
+}
+
+export async function saveUserSettings(apiBaseUrl: string, settings: ConsoleSettings): Promise<boolean> {
+  const base = trimSlash(apiBaseUrl);
+  if (!base) return false;
+  try {
+    const res = await fetch(`${base}/v1/user/settings`, {
+      ...defaultInit,
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(settings),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
 }
 
 export type BackendHealth = {
@@ -19,27 +78,12 @@ export async function checkBackendHealth(apiBaseUrl: string): Promise<BackendHea
   if (!base) return { ok: false, service: null, environment: null, message: "API Base URL が未設定です。" };
 
   try {
-    const healthRes = await fetch(`${base}/health`);
+    const healthRes = await fetch(`${base}/health`, defaultInit);
     if (!healthRes.ok) {
       return { ok: false, service: null, environment: null, message: `HTTP ${healthRes.status}` };
     }
     const healthBody = (await healthRes.json()) as { ok: boolean; service: string };
-
-    let environment: string | null = null;
-    try {
-      const metaRes = await fetch(`${base}/v1/meta`);
-      if (metaRes.ok) {
-        const metaBody = (await metaRes.json()) as { environment: string };
-        environment = metaBody.environment;
-      }
-    } catch { /* ignore */ }
-
-    return {
-      ok: healthBody.ok,
-      service: healthBody.service,
-      environment,
-      message: "API に接続できました。",
-    };
+    return { ok: healthBody.ok, service: healthBody.service, environment: null, message: "API に接続できました。" };
   } catch (error) {
     return { ok: false, service: null, environment: null, message: `接続エラー: ${String(error)}` };
   }
@@ -65,7 +109,7 @@ export async function fetchYouTubeStatus(apiBaseUrl: string): Promise<YouTubeWor
   }
 
   try {
-    const res = await fetch(`${base}/v1/youtube/connection`);
+    const res = await fetch(`${base}/v1/youtube/connection`, defaultInit);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const body = await res.json() as {
       connected: boolean;
@@ -97,20 +141,6 @@ export async function fetchYouTubeStatus(apiBaseUrl: string): Promise<YouTubeWor
   }
 }
 
-export async function sendCredentials(settings: ConsoleSettings): Promise<void> {
-  const base = trimSlash(settings.apiBaseUrl);
-  if (!base || !settings.youtubeClientId.trim() || !settings.youtubeClientSecret.trim()) return;
-
-  await fetch(`${base}/v1/youtube/credentials`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      clientId: settings.youtubeClientId.trim(),
-      clientSecret: settings.youtubeClientSecret.trim(),
-    }),
-  });
-}
-
 export type WorkerStatus = { running: boolean; message: string };
 
 export async function getWorkerStatus(settings: ConsoleSettings): Promise<WorkerStatus> {
@@ -118,7 +148,7 @@ export async function getWorkerStatus(settings: ConsoleSettings): Promise<Worker
   if (!base) return { running: false, message: "停止中" };
 
   try {
-    const res = await fetch(`${base}/v1/polling/${workspaceSlug(settings)}/status`);
+    const res = await fetch(`${base}/v1/polling/${workspaceSlug(settings)}/status`, defaultInit);
     if (!res.ok) return { running: false, message: "停止中" };
     return await res.json() as WorkerStatus;
   } catch {
@@ -132,6 +162,7 @@ export async function startWorker(settings: ConsoleSettings): Promise<WorkerStat
 
   try {
     const res = await fetch(`${base}/v1/polling/${workspaceSlug(settings)}/start`, {
+      ...defaultInit,
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ intervalSec: settings.pollingIntervalSec }),
@@ -148,7 +179,10 @@ export async function stopWorker(settings: ConsoleSettings): Promise<WorkerStatu
   if (!base) return { running: false, message: "停止しました" };
 
   try {
-    const res = await fetch(`${base}/v1/polling/${workspaceSlug(settings)}/stop`, { method: "POST" });
+    const res = await fetch(`${base}/v1/polling/${workspaceSlug(settings)}/stop`, {
+      ...defaultInit,
+      method: "POST",
+    });
     if (!res.ok) return { running: false, message: "停止しました" };
     return await res.json() as WorkerStatus;
   } catch {
@@ -159,7 +193,6 @@ export async function stopWorker(settings: ConsoleSettings): Promise<WorkerStatu
 export async function sendTestEvent(
   settings: ConsoleSettings,
   testSubscriberName: string,
-  avatarDataUrl: string | null,
   kind: "new_subscriber" | "new_anonymous_subscriber",
 ): Promise<{ ok: boolean; message: string }> {
   const base = trimSlash(settings.apiBaseUrl);
@@ -176,7 +209,7 @@ export async function sendTestEvent(
     message: resolvedMessage,
     accentColor: settings.accentColor,
     displayDurationSec: settings.displayDurationSec,
-    avatarUrl: avatarDataUrl ?? undefined,
+    avatarUrl: settings.avatarDataUrl || undefined,
     soundPreset: settings.soundPreset,
     soundVolume: settings.soundVolume,
   };
@@ -184,6 +217,7 @@ export async function sendTestEvent(
 
   try {
     const res = await fetch(`${base}/v1/events/${workspaceSlug(settings)}`, {
+      ...defaultInit,
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -193,4 +227,8 @@ export async function sendTestEvent(
   } catch (error) {
     return { ok: false, message: `送信失敗: ${String(error)}` };
   }
+}
+
+export function getOAuthStartUrl(apiBaseUrl: string): string {
+  return `${trimSlash(apiBaseUrl)}/v1/youtube/auth/start`;
 }

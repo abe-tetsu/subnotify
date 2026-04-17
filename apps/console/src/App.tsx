@@ -3,20 +3,22 @@ import { useEffect, useState } from "react";
 import {
   checkBackendHealth,
   fetchYouTubeStatus,
+  getMe,
+  getOAuthStartUrl,
   getWorkerStatus,
-  sendCredentials,
+  loadUserSettings,
+  logout,
+  saveUserSettings,
   sendTestEvent,
   startWorker,
   stopWorker,
   type BackendHealth,
+  type Me,
   type YouTubeWorkspaceStatus,
 } from "./api";
 import {
-  loadAvatarDataUrl,
-  loadSettings,
-  removeAvatar,
-  saveAvatarDataUrl,
-  saveSettings,
+  DEFAULT_API_BASE_URL,
+  defaultSettings,
   workspaceSlug,
   type ConsoleSettings,
 } from "./storage";
@@ -52,120 +54,111 @@ const defaultYouTubeStatus: YouTubeWorkspaceStatus = {
 };
 
 function App() {
+  const [apiBaseUrl] = useState(DEFAULT_API_BASE_URL);
+  const [me, setMe] = useState<Me | null>(null);
+  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
   const [activeTab, setActiveTab] = useState<TabId>("dashboard");
-  const initialSettings = loadSettings();
-  const [settings, setSettings] = useState<ConsoleSettings>(initialSettings);
-  const [savedSettings, setSavedSettings] = useState<ConsoleSettings>(initialSettings);
+  const [settings, setSettings] = useState<ConsoleSettings>(defaultSettings(apiBaseUrl));
+  const [savedSettings, setSavedSettings] = useState<ConsoleSettings>(defaultSettings(apiBaseUrl));
   const [backendHealth, setBackendHealth] = useState<BackendHealth>({
     ok: false, service: null, environment: null, message: "",
   });
   const [youtubeStatus, setYouTubeStatus] = useState<YouTubeWorkspaceStatus>(defaultYouTubeStatus);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
-  const [isOpeningOAuthPage, setIsOpeningOAuthPage] = useState(false);
-  const [isAwaitingOAuthCompletion, setIsAwaitingOAuthCompletion] = useState(false);
   const [settingsMessage, setSettingsMessage] = useState<string | null>(null);
-  const [lastError, setLastError] = useState<string | null>(null);
   const [isSendingTestEvent, setIsSendingTestEvent] = useState(false);
   const [testEventMessage, setTestEventMessage] = useState<string | null>(null);
   const [testSubscriberName, setTestSubscriberName] = useState("テストユーザー");
-  const [avatarPreviewUrl, setAvatarPreviewUrl] = useState<string | null>(null);
   const [workerRunning, setWorkerRunning] = useState(false);
   const [workerMessage, setWorkerMessage] = useState<string | null>(null);
 
   const hasUnsavedChanges =
-    settings.apiBaseUrl !== savedSettings.apiBaseUrl ||
     settings.overlayBaseUrl !== savedSettings.overlayBaseUrl ||
-    settings.youtubeClientId !== savedSettings.youtubeClientId ||
-    settings.youtubeClientSecret !== savedSettings.youtubeClientSecret ||
     settings.namedMessageTemplate !== savedSettings.namedMessageTemplate ||
     settings.anonymousMessageTemplate !== savedSettings.anonymousMessageTemplate ||
     settings.accentColor !== savedSettings.accentColor ||
     settings.displayDurationSec !== savedSettings.displayDurationSec ||
     settings.pollingIntervalSec !== savedSettings.pollingIntervalSec ||
     settings.soundPreset !== savedSettings.soundPreset ||
-    settings.soundVolume !== savedSettings.soundVolume;
+    settings.soundVolume !== savedSettings.soundVolume ||
+    settings.avatarDataUrl !== savedSettings.avatarDataUrl;
 
   const testOverlayUrl = (() => {
     const base = savedSettings.overlayBaseUrl.trim().replace(/\/+$/, "") || "http://localhost:5173";
-    const api = savedSettings.apiBaseUrl.trim().replace(/\/+$/, "");
+    const api = apiBaseUrl.trim().replace(/\/+$/, "");
     return `${base}/live/${workspaceSlug(savedSettings)}?api=${encodeURIComponent(api)}`;
   })();
 
-  // 初期化
+  // 初期化: ログイン状態チェック + 設定読み込み
   useEffect(() => {
-    let isMounted = true;
+    let cancelled = false;
 
     const init = async () => {
-      try {
-        const dataUrl = await loadAvatarDataUrl();
-        if (isMounted && dataUrl) setAvatarPreviewUrl(dataUrl);
-      } catch { /* ignore */ }
-
-      if (initialSettings.apiBaseUrl.trim() !== "") {
-        try {
-          const health = await checkBackendHealth(initialSettings.apiBaseUrl);
-          if (isMounted) setBackendHealth(health);
-
-          if (health.ok) {
-            if (initialSettings.youtubeClientId.trim() && initialSettings.youtubeClientSecret.trim()) {
-              await sendCredentials(initialSettings);
-            }
-            const yt = await fetchYouTubeStatus(initialSettings.apiBaseUrl);
-            if (isMounted) setYouTubeStatus(yt);
-          }
-        } catch { /* ignore */ }
+      // URL の ?auth=ok をクリーンアップ
+      const params = new URLSearchParams(window.location.search);
+      if (params.has("auth")) {
+        params.delete("auth");
+        const qs = params.toString();
+        window.history.replaceState({}, "", window.location.pathname + (qs ? `?${qs}` : ""));
       }
-    };
 
-    const loadWorkerStatus = async () => {
-      try {
-        const status = await getWorkerStatus(initialSettings);
-        if (isMounted) setWorkerRunning(status.running);
-      } catch { /* ignore */ }
+      const user = await getMe(apiBaseUrl);
+      if (cancelled) return;
+      setMe(user);
+      setIsCheckingAuth(false);
+
+      if (!user) return;
+
+      const health = await checkBackendHealth(apiBaseUrl);
+      if (cancelled) return;
+      setBackendHealth(health);
+
+      const serverSettings = await loadUserSettings(apiBaseUrl);
+      if (cancelled) return;
+
+      if (serverSettings) {
+        // サーバーから取得した設定をマージ（apiBaseUrl は常に現在の値を使う）
+        const merged = { ...defaultSettings(apiBaseUrl), ...serverSettings, apiBaseUrl };
+        setSettings(merged);
+        setSavedSettings(merged);
+      } else {
+        // 初回: デフォルト設定を保存
+        const fresh = defaultSettings(apiBaseUrl);
+        setSettings(fresh);
+        setSavedSettings(fresh);
+        await saveUserSettings(apiBaseUrl, fresh);
+      }
+
+      const yt = await fetchYouTubeStatus(apiBaseUrl);
+      if (!cancelled) setYouTubeStatus(yt);
     };
 
     void init();
-    void loadWorkerStatus();
+    return () => { cancelled = true; };
+  }, [apiBaseUrl]);
 
-    const workerInterval = window.setInterval(() => void loadWorkerStatus(), 3000);
-    return () => {
-      isMounted = false;
-      window.clearInterval(workerInterval);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // OAuth 自動リフレッシュ
+  // ワーカーステータスのポーリング
   useEffect(() => {
-    const shouldAutoRefresh =
-      (youtubeStatus.stage === "auth_started" || isAwaitingOAuthCompletion) &&
-      !youtubeStatus.connected &&
-      savedSettings.apiBaseUrl.trim() !== "";
-
-    if (!shouldAutoRefresh) return;
-
+    if (!me) return;
     let cancelled = false;
-    const refresh = async () => {
-      if (cancelled) return;
-      try {
-        const yt = await fetchYouTubeStatus(savedSettings.apiBaseUrl);
-        if (!cancelled) {
-          setYouTubeStatus(yt);
-          if (yt.connected) setIsAwaitingOAuthCompletion(false);
-        }
-      } catch { /* ignore */ }
-    };
 
-    void refresh();
-    const intervalId = window.setInterval(() => void refresh(), 3000);
-    const onFocus = () => void refresh();
-    window.addEventListener("focus", onFocus);
-    return () => {
-      cancelled = true;
-      window.clearInterval(intervalId);
-      window.removeEventListener("focus", onFocus);
+    const loadWorker = async () => {
+      const status = await getWorkerStatus(savedSettings);
+      if (!cancelled) setWorkerRunning(status.running);
     };
-  }, [isAwaitingOAuthCompletion, savedSettings.apiBaseUrl, youtubeStatus.connected, youtubeStatus.stage]);
+    void loadWorker();
+    const id = window.setInterval(() => void loadWorker(), 3000);
+    return () => { cancelled = true; window.clearInterval(id); };
+  }, [me, savedSettings]);
+
+  const handleLogin = () => {
+    window.location.href = getOAuthStartUrl(apiBaseUrl);
+  };
+
+  const handleLogout = async () => {
+    await logout(apiBaseUrl);
+    setMe(null);
+  };
 
   const handleStartWorker = async () => {
     const result = await startWorker(savedSettings);
@@ -183,14 +176,9 @@ function App() {
     setIsSavingSettings(true);
     setSettingsMessage("設定を保存しています...");
     try {
-      saveSettings(settings);
+      const ok = await saveUserSettings(apiBaseUrl, settings);
+      if (!ok) throw new Error("サーバーへの保存に失敗");
       setSavedSettings(settings);
-
-      if (settings.youtubeClientId.trim() && settings.youtubeClientSecret.trim()) {
-        await sendCredentials(settings);
-      }
-      const health = await checkBackendHealth(settings.apiBaseUrl);
-      setBackendHealth(health);
       setSettingsMessage("設定を保存しました。");
     } catch (error) {
       setSettingsMessage(`保存に失敗: ${String(error)}`);
@@ -199,38 +187,11 @@ function App() {
     }
   };
 
-  const handleStartOAuth = async () => {
-    if (!savedSettings.youtubeClientId.trim() || !savedSettings.youtubeClientSecret.trim()) {
-      setLastError("設定タブで YouTube OAuth Client ID と Client Secret を入力して保存してください。");
-      return;
-    }
-
-    setIsOpeningOAuthPage(true);
-    setLastError(null);
-    try {
-      await sendCredentials(savedSettings);
-      const status = await fetchYouTubeStatus(savedSettings.apiBaseUrl);
-      setYouTubeStatus(status);
-
-      if (status.oauthStartUrl) {
-        setIsAwaitingOAuthCompletion(true);
-        window.open(status.oauthStartUrl, "_blank");
-      } else {
-        setLastError("OAuth 開始 URL を取得できませんでした。API Base URL と OAuth 設定を確認してください。");
-      }
-    } catch (error) {
-      setLastError(`OAuth の開始に失敗: ${String(error)}`);
-    } finally {
-      setIsOpeningOAuthPage(false);
-    }
-  };
-
   const handleSendTestEvent = async (kind: "new_subscriber" | "new_anonymous_subscriber") => {
     setIsSendingTestEvent(true);
     setTestEventMessage(null);
     try {
-      const avatarDataUrl = await loadAvatarDataUrl();
-      const result = await sendTestEvent(savedSettings, testSubscriberName, avatarDataUrl, kind);
+      const result = await sendTestEvent(savedSettings, testSubscriberName, kind);
       setTestEventMessage(result.message);
     } catch (error) {
       setTestEventMessage(`送信に失敗: ${String(error)}`);
@@ -241,18 +202,50 @@ function App() {
 
   const handleAvatarUpload = (file: File) => {
     const reader = new FileReader();
-    reader.onload = async () => {
+    reader.onload = () => {
       const dataUrl = reader.result as string;
-      await saveAvatarDataUrl(dataUrl);
-      setAvatarPreviewUrl(dataUrl);
+      setSettings((c) => ({ ...c, avatarDataUrl: dataUrl }));
     };
     reader.readAsDataURL(file);
   };
 
-  const handleAvatarRemove = async () => {
-    await removeAvatar();
-    setAvatarPreviewUrl(null);
+  const handleAvatarRemove = () => {
+    setSettings((c) => ({ ...c, avatarDataUrl: "" }));
   };
+
+  if (isCheckingAuth) {
+    return (
+      <main className="app-shell">
+        <section className="hero-card">
+          <p className="hint-text">認証状態を確認中...</p>
+        </section>
+      </main>
+    );
+  }
+
+  if (!me) {
+    return (
+      <main className="app-shell">
+        <section className="hero-card">
+          <div className="hero-copy">
+            <p className="eyebrow">チャンネル登録通知</p>
+            <h1>Subnotify</h1>
+            <p className="hero-text">
+              YouTube のチャンネル登録通知を OBS オーバーレイとして表示します。
+            </p>
+            <p className="panel-text">
+              Google アカウントでログインすると、どのブラウザからでも同じ設定で利用できます。
+            </p>
+            <div className="action-row">
+              <button className="worker-start-button" onClick={handleLogin} type="button">
+                Google でログイン
+              </button>
+            </div>
+          </div>
+        </section>
+      </main>
+    );
+  }
 
   return (
     <main className="app-shell">
@@ -263,6 +256,12 @@ function App() {
           <p className="hero-text">
             YouTube のチャンネル登録通知を OBS オーバーレイとして表示します。
           </p>
+          <p className="hint-text">ログイン中: {me.email}</p>
+          <div className="action-row">
+            <button className="secondary-button" onClick={() => void handleLogout()} type="button">
+              ログアウト
+            </button>
+          </div>
         </div>
 
         <div className="hero-status">
@@ -326,25 +325,6 @@ function App() {
                 </div>
               </div>
 
-              <div className="action-row">
-                <button
-                  className={`secondary-button ${(youtubeStatus.connected || isOpeningOAuthPage) ? "is-disabled" : ""}`}
-                  disabled={youtubeStatus.connected || isOpeningOAuthPage}
-                  onClick={() => void handleStartOAuth()}
-                  type="button"
-                >
-                  {isOpeningOAuthPage ? "ログイン開始中..." : youtubeStatus.connected ? "接続済み" : "YouTube に接続"}
-                </button>
-              </div>
-              {!savedSettings.youtubeClientId.trim() || !savedSettings.youtubeClientSecret.trim() ? (
-                <p className="error-text">
-                  設定タブで YouTube OAuth Client ID と Client Secret を入力して保存してください。
-                </p>
-              ) : (
-                <p className="hint-text">
-                  Google のログイン画面が開きます。許可するとチャンネル情報が取得されます。
-                </p>
-              )}
               {youtubeStatus.lastEvent ? (
                 <p className="hint-text">{youtubeStatus.lastEvent}</p>
               ) : null}
@@ -391,12 +371,10 @@ function App() {
                 </div>
                 <div className="setting-row">
                   <span>API URL</span>
-                  <strong>{savedSettings.apiBaseUrl || "未設定"}</strong>
+                  <strong>{apiBaseUrl}</strong>
                 </div>
               </div>
             </article>
-
-            {lastError ? <p className="error-text">{lastError}</p> : null}
           </section>
         ) : null}
 
@@ -458,10 +436,6 @@ function App() {
                   {testEventMessage}
                 </p>
               ) : null}
-
-              <p className="hint-text">
-                先にオーバーレイをブラウザで開いてから、テスト通知を押してください。
-              </p>
             </article>
           </section>
         ) : null}
@@ -520,8 +494,8 @@ function App() {
                 <div className="field-group">
                   <span className="field-label">アバター画像</span>
                   <div className="avatar-upload-row">
-                    {avatarPreviewUrl ? (
-                      <img alt="アバター" className="avatar-preview" src={avatarPreviewUrl} />
+                    {settings.avatarDataUrl ? (
+                      <img alt="アバター" className="avatar-preview" src={settings.avatarDataUrl} />
                     ) : null}
                     <label className="secondary-button avatar-upload-button">
                       画像を選択
@@ -539,7 +513,7 @@ function App() {
                     </label>
                     <button
                       className="secondary-button"
-                      onClick={() => void handleAvatarRemove()}
+                      onClick={handleAvatarRemove}
                       type="button"
                     >
                       削除
@@ -633,18 +607,8 @@ function App() {
                   <div className="url-box">
                     <code>{savedSettings.workspaceLabel}</code>
                   </div>
-                  <p className="hint-text">自動生成された一意のIDです。オーバーレイ URL に使われます。</p>
+                  <p className="hint-text">Google アカウントごとに自動生成される一意のIDです。オーバーレイ URL に使われます。</p>
                 </div>
-
-                <label className="field-group">
-                  <span className="field-label">API Base URL</span>
-                  <input
-                    className="field-input"
-                    onChange={(e) => { const v = e.currentTarget.value; setSettings((c) => ({ ...c, apiBaseUrl: v })); }}
-                    type="text"
-                    value={settings.apiBaseUrl}
-                  />
-                </label>
 
                 <label className="field-group">
                   <span className="field-label">Overlay Base URL</span>
@@ -653,28 +617,6 @@ function App() {
                     onChange={(e) => { const v = e.currentTarget.value; setSettings((c) => ({ ...c, overlayBaseUrl: v })); }}
                     type="text"
                     value={settings.overlayBaseUrl}
-                  />
-                </label>
-
-                <label className="field-group">
-                  <span className="field-label">YouTube OAuth Client ID</span>
-                  <input
-                    className="field-input"
-                    onChange={(e) => { const v = e.currentTarget.value; setSettings((c) => ({ ...c, youtubeClientId: v })); }}
-                    placeholder="xxxx.apps.googleusercontent.com"
-                    type="text"
-                    value={settings.youtubeClientId}
-                  />
-                </label>
-
-                <label className="field-group">
-                  <span className="field-label">YouTube OAuth Client Secret</span>
-                  <input
-                    className="field-input"
-                    onChange={(e) => { const v = e.currentTarget.value; setSettings((c) => ({ ...c, youtubeClientSecret: v })); }}
-                    placeholder="GOCSPX-xxxx"
-                    type="password"
-                    value={settings.youtubeClientSecret}
                   />
                 </label>
               </div>

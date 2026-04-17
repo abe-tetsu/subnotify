@@ -15,6 +15,8 @@ import (
 
 const (
 	youtubeReadOnlyScope = "https://www.googleapis.com/auth/youtube.readonly"
+	userInfoProfileScope = "https://www.googleapis.com/auth/userinfo.profile"
+	userInfoEmailScope   = "https://www.googleapis.com/auth/userinfo.email"
 	tokenFileName        = "youtube_token.json"
 )
 
@@ -23,15 +25,23 @@ type ChannelInfo struct {
 	Title string
 }
 
+type GoogleUserInfo struct {
+	ID    string `json:"id"`
+	Email string `json:"email"`
+	Name  string `json:"name"`
+}
+
 type OAuthProvider interface {
 	AuthURL(state string) string
 	Exchange(ctx context.Context, code string) (*oauth2.Token, error)
+	ExchangeToClient(ctx context.Context, token *oauth2.Token) *http.Client
 	SaveToken(token *oauth2.Token) error
 	LoadToken() (*oauth2.Token, error)
 	HasToken() bool
 	FetchChannelInfo(ctx context.Context) (ChannelInfo, error)
 	FetchMySubscribers(ctx context.Context) ([]Subscriber, error)
 	FetchSubscriberCount(ctx context.Context) (int, error)
+	FetchGoogleUserInfoWithToken(ctx context.Context, token *oauth2.Token) (GoogleUserInfo, error)
 }
 
 type OAuthService struct {
@@ -51,7 +61,7 @@ func NewOAuthService(clientID, clientSecret, redirectURL, dataDir string) *OAuth
 			ClientSecret: clientSecret,
 			Endpoint:     google.Endpoint,
 			RedirectURL:  redirectURL,
-			Scopes:       []string{youtubeReadOnlyScope},
+			Scopes:       []string{youtubeReadOnlyScope, userInfoProfileScope, userInfoEmailScope},
 		},
 		dataDir: dataDir,
 	}
@@ -180,4 +190,29 @@ func (s *OAuthService) FetchChannelInfo(ctx context.Context) (ChannelInfo, error
 		ID:    result.Items[0].ID,
 		Title: result.Items[0].Snippet.Title,
 	}, nil
+}
+
+func (s *OAuthService) ExchangeToClient(ctx context.Context, token *oauth2.Token) *http.Client {
+	return oauth2.NewClient(ctx, oauth2.StaticTokenSource(token))
+}
+
+func (s *OAuthService) FetchGoogleUserInfoWithToken(ctx context.Context, token *oauth2.Token) (GoogleUserInfo, error) {
+	client := s.ExchangeToClient(ctx, token)
+
+	resp, err := client.Get("https://www.googleapis.com/oauth2/v1/userinfo")
+	if err != nil {
+		return GoogleUserInfo{}, fmt.Errorf("Google ユーザー情報の取得に失敗: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return GoogleUserInfo{}, fmt.Errorf("Google ユーザー情報の取得に失敗 (HTTP %d)", resp.StatusCode)
+	}
+
+	var info GoogleUserInfo
+	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
+		return GoogleUserInfo{}, fmt.Errorf("Google ユーザー情報の解析に失敗: %w", err)
+	}
+
+	return info, nil
 }

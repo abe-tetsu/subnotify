@@ -21,6 +21,8 @@ type Config struct {
 	PollingIntervalSec      int
 	NotifyAPIURL            string
 	Workspace               string
+	ConsoleBaseURL          string
+	FirestoreProjectID      string
 }
 
 func Load() Config {
@@ -45,6 +47,8 @@ func Load() Config {
 		PollingIntervalSec: envOrDefaultInt("SUBNOTIFY_POLLING_INTERVAL_SEC", 30),
 		NotifyAPIURL:       envOrDefault("SUBNOTIFY_NOTIFY_API_URL", "https://api.abetetsu.net"),
 		Workspace:          envOrDefault("SUBNOTIFY_WORKSPACE", "default-workspace"),
+		ConsoleBaseURL:     envOrDefault("SUBNOTIFY_CONSOLE_BASE_URL", "http://localhost:1420"),
+		FirestoreProjectID: envOrDefault("SUBNOTIFY_FIRESTORE_PROJECT", "subscreen"),
 	}
 }
 

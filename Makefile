@@ -104,7 +104,7 @@ deploy-api:
 		--memory=256Mi \
 		--cpu=1 \
 		--timeout=300 \
-		--set-env-vars="SUBNOTIFY_YOUTUBE_CLIENT_ID=$(YT_CLIENT_ID),SUBNOTIFY_YOUTUBE_CLIENT_SECRET=$(YT_CLIENT_SECRET),SUBNOTIFY_PUBLIC_BASE_URL=https://api.abetetsu.net,SUBNOTIFY_DATA_DIR=/tmp/subnotify-data" \
+		--set-env-vars="SUBNOTIFY_YOUTUBE_CLIENT_ID=$(YT_CLIENT_ID),SUBNOTIFY_YOUTUBE_CLIENT_SECRET=$(YT_CLIENT_SECRET),SUBNOTIFY_PUBLIC_BASE_URL=https://api.abetetsu.net,SUBNOTIFY_DATA_DIR=/tmp/subnotify-data,SUBNOTIFY_CONSOLE_BASE_URL=https://console.abetetsu.net,SUBNOTIFY_FIRESTORE_PROJECT=subscreen" \
 		--quiet
 
 deploy-overlay:
