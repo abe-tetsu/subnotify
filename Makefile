@@ -1,20 +1,20 @@
 SHELL := /bin/zsh
 
 ROOT_DIR := /Users/abetetsuya/app/subnotify
-DESKTOP_DIR := $(ROOT_DIR)/apps/desktop
+CONSOLE_DIR := $(ROOT_DIR)/apps/console
 OVERLAY_DIR := $(ROOT_DIR)/apps/overlay
 SERVER_DIR := $(ROOT_DIR)/server
 API_URL := http://localhost:8080/health
 
-.DEFAULT_GOAL := desktop
+.DEFAULT_GOAL := dev
 
-.PHONY: desktop desktop-install overlay overlay-install api worker dev stop build-desktop build-overlay test-server help
+.PHONY: console console-install overlay overlay-install api dev stop build-console build-overlay test-server help deploy-local deploy deploy-api deploy-overlay deploy-console
 
-desktop: desktop-install
-	cd $(DESKTOP_DIR) && exec npm run tauri dev
+console: console-install
+	cd $(CONSOLE_DIR) && exec npm run dev
 
-desktop-install:
-	cd $(DESKTOP_DIR) && npm install
+console-install:
+	cd $(CONSOLE_DIR) && npm install
 
 overlay: overlay-install
 	cd $(OVERLAY_DIR) && exec npm run dev
@@ -25,10 +25,7 @@ overlay-install:
 api:
 	cd $(SERVER_DIR) && go run ./cmd/api
 
-worker:
-	cd $(SERVER_DIR) && go run ./cmd/worker
-
-dev: desktop-install overlay-install
+dev: console-install overlay-install
 	@api_pid=""; \
 	overlay_pid=""; \
 	started_api="false"; \
@@ -55,21 +52,18 @@ dev: desktop-install overlay-install
 	(cd $(OVERLAY_DIR) && exec npm run dev) & \
 	overlay_pid=$$!; \
 	sleep 2; \
-	printf "Starting desktop app\n"; \
-	cd $(DESKTOP_DIR) && exec npm run tauri dev
+	printf "Starting console on http://localhost:1420\n"; \
+	cd $(CONSOLE_DIR) && exec npm run dev
 
 stop:
 	-@pkill -f 'go run ./cmd/api' >/dev/null 2>&1 || true
 	-@pkill -f 'exe/api' >/dev/null 2>&1 || true
-	-@pkill -f 'npm run tauri dev' >/dev/null 2>&1 || true
-	-@pkill -f 'subnotify/apps/desktop.*vite' >/dev/null 2>&1 || true
-	-@pkill -f 'subnotify/apps/desktop' >/dev/null 2>&1 || true
+	-@pkill -f 'subnotify/apps/console.*vite' >/dev/null 2>&1 || true
 	-@pkill -f 'subnotify/apps/overlay.*vite' >/dev/null 2>&1 || true
-	-@pkill -f 'tauri-appsubnotify' >/dev/null 2>&1 || true
 	-@printf "Stopped local subnotify dev processes if any were running.\n"
 
-build-desktop: desktop-install
-	cd $(DESKTOP_DIR) && npm run build
+build-console: console-install
+	cd $(CONSOLE_DIR) && npm run build
 
 build-overlay: overlay-install
 	cd $(OVERLAY_DIR) && npm run build
@@ -81,7 +75,14 @@ GCLOUD := /Users/abetetsuya/google-cloud-sdk/bin/gcloud
 GCP_PROJECT := subscreen
 GCP_REGION := asia-northeast1
 
-deploy: deploy-api deploy-overlay
+# ローカルで build して静的配信で確認（Cloud Run 相当の挙動）
+deploy-local: build-console build-overlay
+	@printf "ローカル配信: console http://localhost:4173, overlay http://localhost:4174\n"
+	@( cd $(CONSOLE_DIR) && npx vite preview --port 4173 ) & \
+	( cd $(OVERLAY_DIR) && npx vite preview --port 4174 ) & \
+	wait
+
+deploy: deploy-api deploy-overlay deploy-console
 	@printf "Deploy complete.\n"
 
 deploy-api:
@@ -121,18 +122,31 @@ deploy-overlay:
 		--timeout=10 \
 		--quiet
 
+deploy-console:
+	@printf "Deploying console to Cloud Run...\n"
+	cd $(CONSOLE_DIR) && $(GCLOUD) run deploy subnotify-console \
+		--source=. \
+		--project=$(GCP_PROJECT) \
+		--region=$(GCP_REGION) \
+		--port=8080 \
+		--max-instances=1 \
+		--min-instances=0 \
+		--allow-unauthenticated \
+		--memory=128Mi \
+		--cpu=1 \
+		--timeout=10 \
+		--quiet
+
 help:
 	@printf "Available targets:\n"
-	@printf "  make           Start the desktop app via Tauri\n"
-	@printf "  make desktop   Start the desktop app via Tauri\n"
-	@printf "  make overlay   Start the public overlay preview app\n"
-	@printf "  make api       Start the Go API server\n"
-	@printf "  make worker    Start the Go worker scaffold\n"
-	@printf "  make dev       Start API + overlay + desktop app together\n"
-	@printf "  make stop      Stop lingering local subnotify dev processes\n"
-	@printf "  make build-desktop  Build the desktop frontend\n"
-	@printf "  make build-overlay  Build the overlay frontend\n"
-	@printf "  make test-server    Run Go tests under server\n"
-	@printf "  make deploy         Deploy API + overlay to Cloud Run\n"
-	@printf "  make deploy-api     Deploy API only\n"
+	@printf "  make             Start API + overlay + console (default)\n"
+	@printf "  make console     Start the admin console (dev server)\n"
+	@printf "  make overlay     Start the overlay preview app\n"
+	@printf "  make api         Start the Go API server\n"
+	@printf "  make dev         Start API + overlay + console together\n"
+	@printf "  make stop        Stop lingering local subnotify dev processes\n"
+	@printf "  make deploy-local  Build and preview locally (console:4173, overlay:4174)\n"
+	@printf "  make deploy        Deploy API + overlay + console to Cloud Run\n"
+	@printf "  make deploy-api    Deploy API only\n"
 	@printf "  make deploy-overlay Deploy overlay only\n"
+	@printf "  make deploy-console Deploy console only\n"
