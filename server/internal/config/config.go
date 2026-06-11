@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"fmt"
 	"os"
-	"strconv"
 	"strings"
 )
 
@@ -18,9 +17,6 @@ type Config struct {
 	YouTubeClientID         string
 	YouTubeClientSecret     string
 	DataDir                 string
-	PollingIntervalSec      int
-	NotifyAPIURL            string
-	Workspace               string
 	ConsoleBaseURL          string
 	FirestoreProjectID      string
 }
@@ -43,11 +39,8 @@ func Load() Config {
 		),
 		YouTubeClientID:     envOrDefault("SUBNOTIFY_YOUTUBE_CLIENT_ID", ""),
 		YouTubeClientSecret: envOrDefault("SUBNOTIFY_YOUTUBE_CLIENT_SECRET", ""),
-		DataDir:            envOrDefault("SUBNOTIFY_DATA_DIR", ".subnotify-data"),
-		PollingIntervalSec: envOrDefaultInt("SUBNOTIFY_POLLING_INTERVAL_SEC", 30),
-		NotifyAPIURL:       envOrDefault("SUBNOTIFY_NOTIFY_API_URL", "https://api.abetetsu.net"),
-		Workspace:          envOrDefault("SUBNOTIFY_WORKSPACE", "default-workspace"),
-		ConsoleBaseURL:     envOrDefault("SUBNOTIFY_CONSOLE_BASE_URL", "http://localhost:1420"),
+		DataDir:        envOrDefault("SUBNOTIFY_DATA_DIR", ".subnotify-data"),
+		ConsoleBaseURL: envOrDefault("SUBNOTIFY_CONSOLE_BASE_URL", "http://localhost:1420"),
 		FirestoreProjectID: envOrDefault("SUBNOTIFY_FIRESTORE_PROJECT", "subscreen"),
 	}
 }
@@ -78,18 +71,6 @@ func loadEnvFile(path string) {
 	if err := scanner.Err(); err != nil {
 		fmt.Fprintf(os.Stderr, "[subnotify] .env.local の読み込みでエラー: %v\n", err)
 	}
-}
-
-func envOrDefaultInt(key string, fallback int) int {
-	value := os.Getenv(key)
-	if value == "" {
-		return fallback
-	}
-	n, err := strconv.Atoi(value)
-	if err != nil {
-		return fallback
-	}
-	return n
 }
 
 func envOrDefault(key, fallback string) string {

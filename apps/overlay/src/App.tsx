@@ -185,7 +185,6 @@ function LiveOverlay({ config }: { config: OverlayConfig }) {
 
     let nextSeq = 0;
     let cancelled = false;
-    // 初回ポーリングでは表示せず、既存イベントのIDだけ記録する
     let initialized = false;
 
     const poll = async () => {
@@ -222,7 +221,7 @@ function LiveOverlay({ config }: { config: OverlayConfig }) {
           showNext();
         }
       } catch (_error) {
-        // retry on next interval
+        // 次の間隔でリトライ
       }
     };
 
