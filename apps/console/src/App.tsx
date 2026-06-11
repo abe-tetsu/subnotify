@@ -89,12 +89,10 @@ function App() {
     return `${base}/live/${workspaceSlug(savedSettings)}?api=${encodeURIComponent(api)}`;
   })();
 
-  // 初期化: ログイン状態チェック + 設定読み込み
   useEffect(() => {
     let cancelled = false;
 
     const init = async () => {
-      // URL の ?auth=ok をクリーンアップ
       const params = new URLSearchParams(window.location.search);
       if (params.has("auth")) {
         params.delete("auth");
@@ -117,12 +115,10 @@ function App() {
       if (cancelled) return;
 
       if (serverSettings) {
-        // サーバーから取得した設定をマージ（apiBaseUrl は常に現在の値を使う）
         const merged = { ...defaultSettings(apiBaseUrl), ...serverSettings, apiBaseUrl };
         setSettings(merged);
         setSavedSettings(merged);
       } else {
-        // 初回: デフォルト設定を保存
         const fresh = defaultSettings(apiBaseUrl);
         setSettings(fresh);
         setSavedSettings(fresh);
@@ -137,7 +133,6 @@ function App() {
     return () => { cancelled = true; };
   }, [apiBaseUrl]);
 
-  // ワーカーステータスのポーリング
   useEffect(() => {
     if (!me) return;
     let cancelled = false;
@@ -234,7 +229,7 @@ function App() {
               YouTube のチャンネル登録通知を OBS オーバーレイとして表示します。
             </p>
             <p className="panel-text">
-              Google アカウントでログインすると、どのブラウザからでも同じ設定で利用できます。
+              ログインすればどの端末でも同じ設定で使えます。
             </p>
             <div className="action-row">
               <button className="worker-start-button" onClick={handleLogin} type="button">
@@ -271,8 +266,8 @@ function App() {
           </div>
           <p className="status-help">
             {workerRunning
-              ? "チャンネル登録者をポーリング中です。新規登録を検出すると通知します。"
-              : "ポーリングを開始すると、チャンネル登録の監視が始まります。"}
+              ? "登録者を監視中。新規登録を検出すると通知します。"
+              : "開始すると登録者の監視が始まります。"}
           </p>
           <div className="action-row">
             {workerRunning ? (
@@ -357,7 +352,7 @@ function App() {
                 </div>
               </div>
               <p className="hint-text">
-                この URL は OBS 向けに透明背景です。配信画面の上にそのまま重ねて使えます。
+                透明背景なので配信画面にそのまま重ねられます。
               </p>
             </article>
 
@@ -384,7 +379,7 @@ function App() {
               <p className="panel-label">テスト通知</p>
               <h2>オーバーレイにテスト通知を送る</h2>
               <p className="panel-text">
-                オーバーレイをブラウザで開いた状態でテスト通知を送ると、通知カードの表示を確認できます。
+                オーバーレイを開いた状態で送ると通知カードを確認できます。
               </p>
 
               <div className="settings-form">
@@ -519,7 +514,7 @@ function App() {
                       削除
                     </button>
                   </div>
-                  <p className="hint-text">通知カードのイニシャルアバターが画像に変わります。</p>
+                  <p className="hint-text">アバターが画像に変わります。</p>
                 </div>
 
                 <label className="field-group">
@@ -554,7 +549,7 @@ function App() {
                       </button>
                     ))}
                   </div>
-                  <p className="hint-text">YouTube API に問い合わせる間隔です。短いほどリアルタイムに近づきますが、API クォータを消費します。</p>
+                  <p className="hint-text">短いほど速報性が上がりますが API クォータを多く消費します。</p>
                 </label>
               </div>
             </article>
@@ -607,7 +602,7 @@ function App() {
                   <div className="url-box">
                     <code>{savedSettings.workspaceLabel}</code>
                   </div>
-                  <p className="hint-text">Google アカウントごとに自動生成される一意のIDです。オーバーレイ URL に使われます。</p>
+                  <p className="hint-text">アカウントごとに自動生成され、オーバーレイ URL に使われます。</p>
                 </div>
 
                 <label className="field-group">

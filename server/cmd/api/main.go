@@ -38,7 +38,6 @@ func main() {
 	eventBroker := notify.NewBroker()
 	eventPoller := notify.NewPoller()
 
-	// Firestore クライアント初期化
 	var firestoreClient *firestore.Client
 	var sessionStore *auth.SessionStore
 	var settingsStore *store.SettingsStore

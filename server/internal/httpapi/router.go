@@ -74,8 +74,6 @@ func NewRouter(application *app.App, opts ...any) http.Handler {
 			settingsStore = v
 		}
 	}
-	_ = eventStore // kept for future use
-
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
@@ -219,7 +217,6 @@ func NewRouter(application *app.App, opts ...any) http.Handler {
 
 		application.CompleteYouTubeAuth(channelTitle, channelID)
 
-		// セッション作成（Firestore 有効時のみ）
 		if sessionStore != nil {
 			userInfo, err := oauth.FetchGoogleUserInfoWithToken(r.Context(), token)
 			if err != nil {
@@ -470,7 +467,6 @@ func NewRouter(application *app.App, opts ...any) http.Handler {
 		})
 	})
 
-	// /v1/user/* エンドポイント（Firestore 有効時のみ）
 	if sessionStore != nil && settingsStore != nil {
 		mux.HandleFunc("GET /v1/user/me", func(w http.ResponseWriter, r *http.Request) {
 			session := getSessionFromRequest(r, sessionStore)
@@ -574,8 +570,6 @@ func guidanceForStage(snapshot app.YouTubeConnectionSnapshot) []string {
 }
 
 func cookieDomain(consoleBaseURL string) string {
-	// https://console.abetetsu.net → abetetsu.net
-	// http://localhost:1420 → "" (Cookie Domain 省略でホスト限定)
 	u, err := url.Parse(strings.TrimRight(consoleBaseURL, "/"))
 	if err != nil {
 		return ""
@@ -584,7 +578,6 @@ func cookieDomain(consoleBaseURL string) string {
 	if host == "" || host == "localhost" || net.ParseIP(host) != nil {
 		return ""
 	}
-	// 親ドメインを返す: console.abetetsu.net → abetetsu.net
 	parts := strings.Split(host, ".")
 	if len(parts) >= 2 {
 		return strings.Join(parts[len(parts)-2:], ".")

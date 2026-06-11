@@ -1,5 +1,3 @@
-// 設定の型定義（Firestore 同期）
-
 export type ConsoleSettings = {
   workspaceLabel: string;
   apiBaseUrl: string;
@@ -35,6 +33,5 @@ export function workspaceSlug(settings: ConsoleSettings): string {
   return w || "default-workspace";
 }
 
-// デフォルトの API Base URL（本番）
 export const DEFAULT_API_BASE_URL =
   import.meta.env.MODE === "production" ? "https://api.abetetsu.net" : "http://localhost:8080";

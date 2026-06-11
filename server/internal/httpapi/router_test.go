@@ -62,6 +62,18 @@ func (m *mockOAuth) FetchChannelInfo(_ context.Context) (youtube.ChannelInfo, er
 	return m.channelInfo, nil
 }
 
+func (m *mockOAuth) FetchSubscriberCount(_ context.Context) (int, error) {
+	return 0, nil
+}
+
+func (m *mockOAuth) ExchangeToClient(_ context.Context, _ *oauth2.Token) *http.Client {
+	return http.DefaultClient
+}
+
+func (m *mockOAuth) FetchGoogleUserInfoWithToken(_ context.Context, _ *oauth2.Token) (youtube.GoogleUserInfo, error) {
+	return youtube.GoogleUserInfo{}, nil
+}
+
 type mockNotExist struct{}
 
 func (e *mockNotExist) Error() string { return "file does not exist" }

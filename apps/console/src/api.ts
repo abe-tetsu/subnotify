@@ -1,5 +1,3 @@
-// API 通信層（Cookie ベース認証）
-
 import type { ConsoleSettings } from "./storage";
 import { workspaceSlug } from "./storage";
 
@@ -7,7 +5,6 @@ function trimSlash(url: string): string {
   return url.trim().replace(/\/+$/, "");
 }
 
-// credentials: 'include' で Cookie を送信
 const defaultInit: RequestInit = { credentials: "include" };
 
 export type Me = {
