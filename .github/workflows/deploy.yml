@@ -1,0 +1,125 @@
+name: Deploy to Cloud Run
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  GCP_PROJECT: subscreen
+  GCP_REGION: asia-northeast1
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      api: ${{ steps.filter.outputs.api }}
+      overlay: ${{ steps.filter.outputs.overlay }}
+      console: ${{ steps.filter.outputs.console }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            api:
+              - 'server/**'
+            overlay:
+              - 'apps/overlay/**'
+            console:
+              - 'apps/console/**'
+
+  deploy-api:
+    needs: changes
+    if: ${{ github.event_name == 'workflow_dispatch' || needs.changes.outputs.api == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+      - name: Test
+        working-directory: server
+        run: go test ./...
+      - uses: google-github-actions/auth@v2
+        with:
+          project_id: subscreen
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: Deploy
+        working-directory: server
+        run: |
+          gcloud run deploy subnotify-api \
+            --source=. \
+            --project=${{ env.GCP_PROJECT }} \
+            --region=${{ env.GCP_REGION }} \
+            --port=8080 \
+            --max-instances=1 \
+            --min-instances=0 \
+            --allow-unauthenticated \
+            --memory=256Mi \
+            --cpu=1 \
+            --timeout=300 \
+            --set-env-vars="SUBNOTIFY_YOUTUBE_CLIENT_ID=${{ secrets.SUBNOTIFY_YOUTUBE_CLIENT_ID }},SUBNOTIFY_YOUTUBE_CLIENT_SECRET=${{ secrets.SUBNOTIFY_YOUTUBE_CLIENT_SECRET }},SUBNOTIFY_PUBLIC_BASE_URL=https://api.abetetsu.net,SUBNOTIFY_DATA_DIR=/tmp/subnotify-data,SUBNOTIFY_CONSOLE_BASE_URL=https://console.abetetsu.net,SUBNOTIFY_FIRESTORE_PROJECT=subscreen" \
+            --quiet
+
+  deploy-overlay:
+    needs: changes
+    if: ${{ github.event_name == 'workflow_dispatch' || needs.changes.outputs.overlay == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v2
+        with:
+          project_id: subscreen
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: Deploy
+        working-directory: apps/overlay
+        run: |
+          gcloud run deploy subnotify-overlay \
+            --source=. \
+            --project=${{ env.GCP_PROJECT }} \
+            --region=${{ env.GCP_REGION }} \
+            --port=8080 \
+            --max-instances=1 \
+            --min-instances=0 \
+            --allow-unauthenticated \
+            --memory=128Mi \
+            --cpu=1 \
+            --timeout=10 \
+            --quiet
+
+  deploy-console:
+    needs: changes
+    if: ${{ github.event_name == 'workflow_dispatch' || needs.changes.outputs.console == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v2
+        with:
+          project_id: subscreen
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: Deploy
+        working-directory: apps/console
+        run: |
+          gcloud run deploy subnotify-console \
+            --source=. \
+            --project=${{ env.GCP_PROJECT }} \
+            --region=${{ env.GCP_REGION }} \
+            --port=8080 \
+            --max-instances=1 \
+            --min-instances=0 \
+            --allow-unauthenticated \
+            --memory=128Mi \
+            --cpu=1 \
+            --timeout=10 \
+            --quiet

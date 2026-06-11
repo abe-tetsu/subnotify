@@ -60,6 +60,17 @@ YouTube OAuth クレデンシャルを `server/.env.local` に設定します（
 
 GCP プロジェクト `subscreen` / リージョン `asia-northeast1`。
 
+`main` への push で、変更のあったサービスを GitHub Actions が自動デプロイします（`.github/workflows/deploy.yml`）。手動実行は Actions の workflow_dispatch から。認証は Workload Identity 連携を使用し、以下の GitHub Secrets が必要です。
+
+| Secret | 用途 |
+|---|---|
+| `GCP_WIF_PROVIDER` | Workload Identity プロバイダのリソース名 |
+| `GCP_SERVICE_ACCOUNT` | デプロイ用サービスアカウントのメール |
+| `SUBNOTIFY_YOUTUBE_CLIENT_ID` | YouTube OAuth クライアントID |
+| `SUBNOTIFY_YOUTUBE_CLIENT_SECRET` | YouTube OAuth クライアントシークレット |
+
+ローカルからの手動デプロイ:
+
 ```bash
 make deploy           # API + overlay + console
 make deploy-api
